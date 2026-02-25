@@ -167,6 +167,16 @@ void SpaceModule::reset()
     tank2bOutput = 0.0f;
 }
 
+// Soft-clip to prevent energy blowup in feedback loops
+static inline float softClip(float x)
+{
+    // Fast tanh approximation: keeps signal in (-1, 1)
+    if (x > 3.0f)  return 1.0f;
+    if (x < -3.0f) return -1.0f;
+    float x2 = x * x;
+    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+}
+
 void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float decayParam)
 {
     if (amount < 0.001f)
@@ -177,8 +187,9 @@ void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float 
     auto* rightChannel = buffer.getWritePointer(1);
 
     // Decay parameter controls reverb tail independently from wet/dry
-    // decayParam 0.0 → tight room (0.2), 1.0 → long ambient wash (0.95)
-    float targetDecay = 0.2f + 0.75f * decayParam;
+    // decayParam 0.0 -> tight room (0.2), 1.0 -> long ambient wash (0.90)
+    // Capped at 0.90 to prevent runaway feedback in the cross-coupled tank
+    float targetDecay = 0.2f + 0.70f * decayParam;
     // Damping tied to decay: brighter at low decay, darker at high
     float targetDamping = 0.3f + 0.4f * decayParam;
     smoothedDecay.setTargetValue(targetDecay);
@@ -210,7 +221,7 @@ void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float 
         diffused = inputDiffusers[3].process(diffused, 0.625f);
 
         // ---- Tank Loop 1 ----
-        float tankIn1 = diffused + tank2bOutput * currentDecay;
+        float tankIn1 = diffused + softClip(tank2bOutput) * currentDecay;
 
         // Allpass in loop 1
         float ap1Out = tankAllpass1.process(tankIn1, -0.7f);
@@ -221,14 +232,14 @@ void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float 
 
         // Damping lowpass (one-pole)
         damping1_z1 = d1aOut * (1.0f - currentDamping) + damping1_z1 * currentDamping;
-        float damped1 = damping1_z1;
+        float damped1 = softClip(damping1_z1);
 
         // Delay 1b
         tankDelay1b.write(damped1 * currentDecay);
         tank1bOutput = tankDelay1b.read();
 
         // ---- Tank Loop 2 ----
-        float tankIn2 = diffused + tank1bOutput * currentDecay;
+        float tankIn2 = diffused + softClip(tank1bOutput) * currentDecay;
 
         // Allpass in loop 2
         float ap2Out = tankAllpass2.process(tankIn2, -0.7f);
@@ -239,7 +250,7 @@ void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float 
 
         // Damping lowpass (one-pole)
         damping2_z1 = d2aOut * (1.0f - currentDamping) + damping2_z1 * currentDamping;
-        float damped2 = damping2_z1;
+        float damped2 = softClip(damping2_z1);
 
         // Delay 2b
         tankDelay2b.write(damped2 * currentDecay);
@@ -264,8 +275,8 @@ void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float 
         reverbL *= 0.25f; // Normalize tap sum
         reverbR *= 0.25f;
 
-        // Mix dry + wet
-        leftChannel[i] = leftChannel[i] * dry + reverbL * wet;
-        rightChannel[i] = rightChannel[i] * dry + reverbR * wet;
+        // Mix dry + wet, with final safety clamp
+        leftChannel[i]  = juce::jlimit(-2.0f, 2.0f, leftChannel[i] * dry + reverbL * wet);
+        rightChannel[i] = juce::jlimit(-2.0f, 2.0f, rightChannel[i] * dry + reverbR * wet);
     }
 }

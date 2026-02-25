@@ -242,8 +242,12 @@ void FluxModule::process(juce::AudioBuffer<float>& buffer, float amount)
                 // Output from the looping grain with fade-in/out
                 if (isStuttering)
                 {
-                    const float grainL = stutterBuffer[static_cast<size_t>(stutterReadFrame) * 2];
-                    const float grainR = stutterBuffer[static_cast<size_t>(stutterReadFrame) * 2 + 1];
+                    // Always wrap read frame into valid range before reading
+                    int safeRead = stutterReadFrame % stutterBufFrames;
+                    if (safeRead < 0) safeRead += stutterBufFrames;
+
+                    const float grainL = stutterBuffer[static_cast<size_t>(safeRead) * 2];
+                    const float grainR = stutterBuffer[static_cast<size_t>(safeRead) * 2 + 1];
 
                     // Position within grain for fade envelope
                     int posInGrain = stutterReadFrame - stutterGrainStart;
@@ -251,7 +255,7 @@ void FluxModule::process(juce::AudioBuffer<float>& buffer, float amount)
 
                     // 2ms fade-in at start, 2ms fade-out at end
                     float grainEnv = 1.0f;
-                    if (fadeSamples > 0)
+                    if (fadeSamples > 0 && stutterLength > fadeSamples * 2)
                     {
                         if (posInGrain < fadeSamples)
                             grainEnv = static_cast<float>(posInGrain) / static_cast<float>(fadeSamples);
@@ -260,14 +264,18 @@ void FluxModule::process(juce::AudioBuffer<float>& buffer, float amount)
                     }
 
                     // Advance read pointer, looping within the grain
-                    if (++stutterReadFrame >= stutterGrainStart + stutterLength)
+                    ++stutterReadFrame;
+                    int framesIntoGrain = stutterReadFrame - stutterGrainStart;
+                    if (framesIntoGrain < 0) framesIntoGrain += stutterBufFrames;
+                    if (framesIntoGrain >= stutterLength)
                     {
-                        // Wrap within circular buffer
-                        if (stutterReadFrame >= stutterBufFrames)
-                            stutterReadFrame -= stutterBufFrames;
-                        else
-                            stutterReadFrame = stutterGrainStart;
+                        stutterReadFrame = stutterGrainStart;
                     }
+                    // Always keep read frame in valid range
+                    if (stutterReadFrame >= stutterBufFrames)
+                        stutterReadFrame -= stutterBufFrames;
+                    if (stutterReadFrame < 0)
+                        stutterReadFrame = 0;
 
                     // Blend: live signal at (1 - wet), frozen grain at wet
                     outL = outL * (1.0f - wetAmount) + grainL * grainEnv * wetAmount;
