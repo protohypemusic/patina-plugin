@@ -1,0 +1,211 @@
+# ============================================================
+# Patina — Build & Release
+#
+# Triggers on version tags (v1.0.0, v1.2.3, etc.)
+# Builds Windows + macOS installers and publishes a GitHub Release.
+#
+# Manual trigger also available via workflow_dispatch.
+# ============================================================
+
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  # --------------------------------------------------------
+  # Windows — Build VST3 + Create Inno Setup installer
+  # --------------------------------------------------------
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure CMake
+        run: cmake -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build Release
+        run: cmake --build build --config Release
+
+      - name: Verify build artifacts
+        shell: pwsh
+        run: |
+          $vst3 = "build\Patina_artefacts\Release\VST3\Patina.vst3\Contents\x86_64-win\Patina.vst3"
+          if (!(Test-Path $vst3)) {
+            Write-Error "VST3 not found at $vst3"
+            exit 1
+          }
+          Write-Output "VST3 found: $vst3"
+          Write-Output "Size: $((Get-Item $vst3).Length / 1MB) MB"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          # Refresh PATH
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\windows\patina-installer.iss
+          if (!(Test-Path "installer\output\Patina-*-Windows.exe")) {
+            Write-Error "Installer not created"
+            exit 1
+          }
+          Get-Item "installer\output\Patina-*-Windows.exe" | ForEach-Object {
+            Write-Output "Installer: $($_.Name) ($([math]::Round($_.Length / 1MB, 1)) MB)"
+          }
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: installer/output/Patina-*-Windows.exe
+
+  # --------------------------------------------------------
+  # macOS — Build VST3 + AU + Create .pkg installer
+  # --------------------------------------------------------
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure CMake (Xcode)
+        run: cmake -B build -G Xcode
+
+      - name: Build Release
+        run: cmake --build build --config Release
+
+      - name: Verify build artifacts
+        run: |
+          VST3="build/Patina_artefacts/Release/VST3/Patina.vst3"
+          AU="build/Patina_artefacts/Release/AU/Patina.component"
+
+          FOUND=0
+          if [ -d "$VST3" ]; then
+            echo "VST3 found: $VST3"
+            du -sh "$VST3"
+            FOUND=$((FOUND + 1))
+          else
+            echo "WARNING: VST3 not found"
+          fi
+
+          if [ -d "$AU" ]; then
+            echo "AU found: $AU"
+            du -sh "$AU"
+            FOUND=$((FOUND + 1))
+          else
+            echo "WARNING: AU not found"
+          fi
+
+          if [ $FOUND -eq 0 ]; then
+            echo "ERROR: No build artifacts found"
+            exit 1
+          fi
+
+      - name: Build .pkg installer
+        run: |
+          chmod +x installer/macos/build-pkg.sh
+          ./installer/macos/build-pkg.sh
+
+      - name: Verify .pkg
+        run: |
+          ls -lh installer/output/Patina-*-macOS.pkg
+          if [ ! -f installer/output/Patina-*-macOS.pkg ]; then
+            echo "ERROR: .pkg not created"
+            exit 1
+          fi
+
+      - name: Upload macOS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer
+          path: installer/output/Patina-*-macOS.pkg
+
+  # --------------------------------------------------------
+  # Release — Combine artifacts and publish GitHub Release
+  # --------------------------------------------------------
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: release-files/
+
+      - name: Download macOS installer
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-installer
+          path: release-files/
+
+      - name: List release files
+        run: ls -lh release-files/
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            TAG="${{ github.ref_name }}"
+            echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Patina ${{ steps.version.outputs.version }}"
+          body: |
+            ## Patina ${{ steps.version.outputs.version }}
+
+            A lo-fi texture plugin by Futureproof Music School.
+
+            ### Download
+
+            | Platform | File | Install Location |
+            |----------|------|-----------------|
+            | **Windows** | `Patina-${{ steps.version.outputs.version }}-Windows.exe` | `C:\Program Files\Common Files\VST3\` |
+            | **macOS** | `Patina-${{ steps.version.outputs.version }}-macOS.pkg` | `/Library/Audio/Plug-Ins/VST3/` and `/Library/Audio/Plug-Ins/Components/` |
+
+            ### Install
+
+            1. Download the installer for your platform
+            2. Run the installer (macOS: right-click > Open if unsigned)
+            3. Open your DAW and rescan plugins
+            4. Find **Patina** in your effects list
+
+            ### What's Inside
+
+            6 lo-fi texture modules: **Noise**, **Wobble**, **Distort**, **Space**, **Flux**, **Filter**
+            12 presets, randomize system, and a spectral bloom visualizer.
+
+            ---
+            *Made by [Futureproof Music School](https://futureproofmusicschool.com)*
+          files: release-files/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
