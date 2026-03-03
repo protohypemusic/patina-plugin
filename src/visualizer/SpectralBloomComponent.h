@@ -13,12 +13,11 @@
 // peaks, particles, and per-module visual modulations.
 //
 // Effects by active module:
-//   NOISE   — particles spawn from bar peaks
-//   WOBBLE  — sine-wave x-offset on bars
-//   DISTORT — height jitter + white color shift
-//   SPACE   — trail persists longer
-//   FLUX    — per-bar brightness modulation
-//   FILTER  — dim bars in filtered frequency range
+//   NOISE     — particles spawn from bar peaks
+//   WOBBLE    — sine-wave x-offset on bars
+//   DISTORT   — height jitter + white color shift
+//   RESONATOR — harmonic shimmer on bars
+//   SPACE     — trail persists longer
 // ============================================================
 
 class SpectralBloomComponent : public juce::Component,
@@ -44,9 +43,9 @@ private:
     static constexpr float kTrailDecay  = 0.94f;   // trail decay (base)
     static constexpr float kPeakDecay   = 0.97f;   // peak dot decay
 
-    // dB range
-    static constexpr float kMinDb = -60.0f;
-    static constexpr float kMaxDb =   0.0f;
+    // dB range (post-normalization: 0 dB = full-scale sine)
+    static constexpr float kMinDb = -50.0f;
+    static constexpr float kMaxDb =  10.0f;
 
     // ---- Particle system ----
     static constexpr int kMaxParticles = 120;
@@ -73,17 +72,15 @@ private:
     std::array<Particle, kMaxParticles> particles {};
     int nextParticle = 0;
 
-    float phaseAccum  = 0.0f;   // for wobble sine offset
-    float fluxPhase   = 0.0f;   // for flux brightness mod
+    float phaseAccum     = 0.0f;   // for wobble sine offset
+    float resonatorPhase = 0.0f;   // for resonator shimmer
 
     // Cached module amounts (read each frame)
-    float effNoise   = 0.0f;
-    float effWobble  = 0.0f;
-    float effDistort = 0.0f;
-    float effSpace   = 0.0f;
-    float effFlux    = 0.0f;
-    float effFilter  = 0.0f;
-    float effAge     = 0.0f;
+    float effNoise     = 0.0f;
+    float effWobble    = 0.0f;
+    float effDistort   = 0.0f;
+    float effResonator = 0.0f;
+    float effSpace     = 0.0f;
 
     // ---- Helpers ----
     void updateBinsFromFFT();

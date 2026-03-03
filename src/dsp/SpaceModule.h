@@ -59,6 +59,8 @@ private:
         void write(float sample);
         float read() const;
         float readAt(int offset) const;
+        float readFractional(float offset) const;
+        int getDelayLength() const { return delayLength; }
 
     private:
         std::vector<float> buffer;
@@ -99,6 +101,13 @@ private:
     };
 
     OutputTaps taps;
+
+    // ---- Tank modulation LFOs (smears comb filter resonances) ----
+    float lfoPhase1 = 0.0f;
+    float lfoPhase2 = 0.0f;
+    float lfoRate1 = 0.0f;
+    float lfoRate2 = 0.0f;
+    float modExcursion = 0.0f;  // Modulation depth in samples
 
     // ---- Parameters ----
     double sampleRate = 44100.0;

@@ -1,19 +1,16 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
-#include <random>
+#include <array>
 
-// ============================================================
-// RandomizeSystem
-//
-// Generates randomized parameter values for all unlocked modules.
-// Weighted ranges are tuned to produce musically useful patches
-// rather than purely random noise.
-//
-// Lock state is stored here (not in the UI) so it persists
-// through plugin state save/load.
-// ============================================================
-
+/**
+ * RandomizeSystem -- Per-module lock/randomize system.
+ *
+ * Locking a module locks ALL of its parameters together
+ * (e.g., locking "Noise" locks noise_amount, noise_tone, AND noise_type).
+ *
+ * Modules: Noise, Wobble, Distort, Resonator, Space, Mix
+ */
 class RandomizeSystem
 {
 public:
@@ -22,12 +19,9 @@ public:
         Noise = 0,
         Wobble,
         Distort,
+        Resonator,
         Space,
-        Flux,
-        Filter,
         Mix,
-        WobbleRate,
-        SpaceDecay,
         Count
     };
 
@@ -35,30 +29,38 @@ public:
 
     RandomizeSystem();
 
-    // Randomize all unlocked parameters via APVTS
+    bool isLocked(ModuleId m) const;
+    void setLocked(ModuleId m, bool locked);
+    void toggleLocked(ModuleId m);
+
+    /** Randomize all unlocked parameters. */
     void randomize(juce::AudioProcessorValueTreeState& apvts);
 
-    // Lock / unlock individual modules
-    void setLocked(ModuleId id, bool locked);
-    bool isLocked(ModuleId id) const;
-    void toggleLock(ModuleId id);
+    /** Save lock states into a ValueTree (for preset recall). */
+    void saveToValueTree(juce::ValueTree& state) const;
 
-    // Persist lock state inside the plugin's ValueTree
-    void saveToValueTree(juce::ValueTree& tree) const;
-    void loadFromValueTree(const juce::ValueTree& tree);
+    /** Load lock states from a ValueTree. */
+    void loadFromValueTree(const juce::ValueTree& state);
+
+    /** Module name strings for save/load keys. */
+    static const char* moduleNames[NUM_MODULES];
 
 private:
-    struct Range { float minVal, maxVal; };
+    struct ParamEntry
+    {
+        const char* id;       // APVTS parameter ID
+        float minVal;         // Randomize min
+        float maxVal;         // Randomize max
+        bool  isInt;          // true = AudioParameterInt
+        ModuleId owner;       // Which module owns this param
+    };
 
-    // Parameter IDs must match PluginProcessor's createParameterLayout()
-    static const char* paramIds[NUM_MODULES];
+    static constexpr int NUM_PARAMS = 15;
+    static const ParamEntry params[NUM_PARAMS];
 
-    // Weighted ranges: tuned to stay in musically useful territory
-    static const Range ranges[NUM_MODULES];
+    std::array<bool, NUM_MODULES> locked{};
 
-    bool lockState[NUM_MODULES] = {};
+    juce::Random rng;
 
-    std::mt19937 rng;
-
-    float randomInRange(float min, float max);
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RandomizeSystem)
 };

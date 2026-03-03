@@ -1,19 +1,26 @@
 #pragma once
-
-#include <juce_dsp/juce_dsp.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <cstdint>
+#include <array>
 
 /**
- * NoiseModule — Generates vinyl crackle, tape hiss, and static noise.
+ * NoiseModule -- White, Pink, and Crackle noise with tone control.
  *
- * Three noise types blended together:
- *   - Vinyl crackle: Poisson-triggered filtered impulses (surface crackle + dust pops)
- *   - Tape hiss: Shaped white noise with high-shelf character
- *   - Static: Broadband noise with subtle modulation
+ * Types:
+ *   0 = White   (flat spectrum)
+ *   1 = Pink    (1/f -- Paul Kellet approximation)
+ *   2 = Crackle (vinyl surface noise + random pops)
  *
- * Amount (0.0-1.0) controls overall noise level mixed into signal.
- * At low amounts, mostly subtle hiss. At high amounts, heavy crackle and static.
+ * Parameters:
+ *   amount : 0-1 noise level added to signal
+ *   tone   : 0-1 (0 = dark/LP, 0.5 = flat, 1.0 = bright/HP)
+ *   type   : 0/1/2
+ *
+ * Noise is gated by an envelope follower so it only sounds when
+ * audio signal is present (musical, not a constant hiss).
+ *
+ * Noise is routed FIRST in the chain so downstream distortion
+ * squishes noise and signal together.
  */
 class NoiseModule
 {
@@ -24,80 +31,56 @@ public:
     void prepare(double sampleRate, int samplesPerBlock);
     void reset();
 
-    /** Process stereo buffer — adds noise to existing signal */
-    void process(juce::AudioBuffer<float>& buffer, float amount);
+    void process(juce::AudioBuffer<float>& buffer,
+                 float amount, float tone, int type);
 
 private:
-    // ---- Fast PRNG (xorshift32) ----
+    double sr = 44100.0;
+
+    // Fast PRNG (xorshift32)
     uint32_t rngState = 0x12345678;
+    float nextRandom();         // [0, 1)
+    float nextRandomBipolar();  // [-1, 1)
 
-    float nextRandom();           // Returns [0, 1)
-    float nextRandomBipolar();    // Returns [-1, 1)
-    float nextGaussian();         // Approximate Gaussian via sum-of-4-uniform
+    // Pink noise state (Paul Kellet method, per channel)
+    struct PinkState
+    {
+        float b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+    };
+    std::array<PinkState, 2> pink{};
 
-    // ---- Vinyl Crackle ----
+    // Crackle noise state (vinyl surface + pops, per channel)
     struct CrackleState
     {
-        // Surface crackle — frequent small impulses
-        float surfaceEnvelope = 0.0f;
-        float surfaceDecay = 0.0f;
-
-        // Dust pop — infrequent louder impulses
-        float popEnvelope = 0.0f;
-        float popDecay = 0.0f;
-
-        // Bandpass filter state for crackle shaping
-        float bp_z1 = 0.0f;
-        float bp_z2 = 0.0f;
+        float surfaceLp    = 0.0f;   // LP filter state for surface noise
+        float surfaceHpOut = 0.0f;   // HP filter output
+        float surfaceHpIn  = 0.0f;   // HP filter previous input
+        float popEnv       = 0.0f;   // Pop impulse decay envelope
     };
+    std::array<CrackleState, 2> crackle{};
 
-    CrackleState crackleL, crackleR;
-    float crackleRate = 0.0f;       // Surface crackle density (per sample probability)
-    float popRate = 0.0f;           // Dust pop density (per sample probability)
+    // Tone filter state (one-pole LP + HP, per channel)
+    std::array<float, 2> lpZ{};
+    std::array<float, 2> hpZ{};
 
-    // Revolution modulator (simulates groove rotation)
-    float revolutionPhase = 0.0f;
-    float revolutionRate = 0.0f;    // ~0.55 Hz for 33 RPM
+    // DC blocker
+    std::array<float, 2> dcX{}, dcY{};
 
-    float generateCrackle(CrackleState& state, float revolutionMod);
+    // Envelope follower (gates noise by input level)
+    float envState = 0.0f;
+    float envAttack  = 0.0f;
+    float envRelease = 0.0f;
 
-    // ---- Tape Hiss ----
-    struct HissFilter
-    {
-        // One-pole high shelf for tape hiss character
-        float z1 = 0.0f;
-        float shelfCoeff = 0.0f;
-        float shelfGain = 0.0f;
-    };
+    // Smoothing
+    float sAmount = 0.0f;
+    float sTone   = 0.0f;
 
-    HissFilter hissL, hissR;
-
-    float generateHiss(HissFilter& filter);
-
-    // ---- Static ----
-    struct StaticState
-    {
-        float modPhase = 0.0f;
-        float modRate = 0.0f;
-    };
-
-    StaticState staticState;
-
-    float generateStatic();
-
-    // ---- DC Blocker ----
-    struct DCBlocker
-    {
-        float x1 = 0.0f;
-        float y1 = 0.0f;
-    };
-
-    DCBlocker dcL, dcR;
-
-    float blockDC(DCBlocker& state, float input);
-
-    // ---- General ----
-    double sampleRate = 44100.0;
+    // Helpers
+    float generateWhite();
+    float generatePink(int ch);
+    float generateCrackle(int ch);
+    float applyTone(int ch, float in, float tone);
+    float tickDC(int ch, float in);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NoiseModule)
 };

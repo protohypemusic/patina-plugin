@@ -11,11 +11,14 @@
 // PatinaEditor
 //
 // Layout (900 x 640):
-//   Header bar       52px  — wordmark + RANDOMIZE button
-//   Visualizer area  228px — SpectralBloomComponent
-//   Module strip     260px — 6 module knobs + lock buttons
-//                            + secondary knobs (WOBBLE rate, SPACE decay)
-//   Master bar       100px — MIX knob (centered)
+//   Header bar       52px  -- wordmark + preset nav + RANDOMIZE
+//   Visualizer area  228px -- SpectralBloomComponent
+//   Module strip     280px -- 5 module columns (knobs, type
+//                             selectors, secondary knobs, locks)
+//   Master bar       80px  -- MIX knob (centered)
+//
+// Modules (left to right):
+//   NOISE | WOBBLE | DISTORT | RESONATOR | SPACE
 // ============================================================
 
 class PatinaEditor : public juce::AudioProcessorEditor,
@@ -29,7 +32,7 @@ public:
     void resized() override;
 
 private:
-    // ---- Timer (sync lock button visual state) ----
+    // ---- Timer (sync lock + type button state) ----
     void timerCallback() override;
 
     // ---- Helpers ----
@@ -42,6 +45,12 @@ private:
                          const juce::String& tooltip);
 
     void syncLockButtons();
+    void syncTypeButtons();
+    void updatePresetLabel();
+
+    // ---- Preset dropdown + save ----
+    void showPresetMenu();
+    void showSavePresetDialog();
 
     // ---- References ----
     PatinaProcessor& processorRef;
@@ -50,15 +59,16 @@ private:
     PatinaLookAndFeel lookAndFeel;
 
     // ---- Header ----
+    juce::TextButton initButton      { "INIT" };
     juce::TextButton randomizeButton { "RANDOMIZE" };
 
     // ---- Preset selector (centered in header) ----
     juce::TextButton presetPrevButton { "<" };
     juce::TextButton presetNextButton { ">" };
-    juce::Label      presetNameLabel;
-    void             updatePresetLabel();
+    juce::TextButton presetNameButton;     // clickable -- opens dropdown
+    juce::TextButton presetSaveButton { "SAVE" };
 
-    // ---- Module strips (6 modules) ----
+    // ---- Module strips (5 modules) ----
     struct ModuleStrip
     {
         juce::Slider     knob;
@@ -67,43 +77,65 @@ private:
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
     };
 
-    std::array<ModuleStrip, 6> moduleStrips;
+    static constexpr int kNumModules = 5;
+    std::array<ModuleStrip, kNumModules> moduleStrips;
+
+    // ---- Secondary knobs (6 total) ----
+    struct SecondaryKnob
+    {
+        juce::Slider knob;
+        juce::Label  label;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
+    };
+
+    SecondaryKnob noiseTone;
+    SecondaryKnob wobbleRate;
+    SecondaryKnob distortTone;
+    SecondaryKnob resonatorFreq;
+    SecondaryKnob resonatorReso;
+    SecondaryKnob spaceDecay;
+
+    void setupSecondaryKnob(SecondaryKnob& sec, const juce::String& labelText,
+                            const juce::String& paramId, double defaultValue,
+                            const juce::String& tooltip);
+
+    // ---- Type selector buttons (3 modules) ----
+    juce::TextButton noiseTypeButton;
+    juce::TextButton distortTypeButton;
+    juce::TextButton resonatorTypeButton;
+
+    static const char* const kNoiseTypeNames[3];
+    static const char* const kDistortTypeNames[5];
+    static const char* const kResonatorTypeNames[3];
 
     // ---- Master controls ----
     juce::Slider mixKnob;
     juce::Label  mixLabel;
-
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachment;
-
-    // ---- Secondary controls (below WOBBLE and SPACE) ----
-    juce::Slider wobbleRateKnob;
-    juce::Label  wobbleRateLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> wobbleRateAttachment;
-
-    juce::Slider spaceDecayKnob;
-    juce::Label  spaceDecayLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> spaceDecayAttachment;
 
     // ---- Visualizer ----
     SpectralBloomComponent spectralBloom;
 
     // ---- Module metadata ----
-    static const char* const kModuleNames[6];
-    static const char* const kModuleParamIds[6];
-    static const RandomizeSystem::ModuleId kModuleIds[6];
-    static constexpr float kModuleDefaults[6] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.5f };
-    static const char* const kModuleTooltips[6];
+    static const char* const kModuleNames[kNumModules];
+    static const char* const kModuleParamIds[kNumModules];
+    static const RandomizeSystem::ModuleId kModuleIds[kNumModules];
+    static constexpr float kModuleDefaults[kNumModules] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+    static const char* const kModuleTooltips[kNumModules];
 
-    // ---- Tooltip window (must be a member; shows knob/button hints) ----
-    juce::TooltipWindow tooltipWindow { this, 600 };  // 600 ms delay
+    // ---- Branding ----
+    // Panchang Bold is loaded in PatinaLookAndFeel and accessed via getPanchangFont()
+
+    // ---- Tooltip window ----
+    juce::TooltipWindow tooltipWindow { this, 600 };
 
     // ---- Layout constants ----
     static constexpr int kEditorWidth  = 900;
     static constexpr int kEditorHeight = 640;
-    static constexpr int kHeaderH      = 52;
-    static constexpr int kVisuH        = 228;
-    static constexpr int kStripH       = 260;
-    static constexpr int kMasterH      = 100;
+    static constexpr int kHeaderH      = 80;
+    static constexpr int kVisuH        = 200;
+    static constexpr int kStripH       = 280;
+    static constexpr int kMasterH      = 80;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PatinaEditor)
 };

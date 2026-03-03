@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include "BinaryData.h"
 
 // ============================================================
 // PatinaLookAndFeel
@@ -71,6 +72,9 @@ public:
                            const juce::Drawable* icon,
                            const juce::Colour* textColour) override;
 
+    // ---- Panchang Bold accessor (loaded from BinaryData) ----
+    juce::Font getPanchangFont(float height) const;
+
 private:
-    juce::Font getModuleFont(float height);
+    juce::Typeface::Ptr panchangTypeface;
 };

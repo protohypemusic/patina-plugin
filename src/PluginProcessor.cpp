@@ -18,29 +18,47 @@ juce::AudioProcessorValueTreeState::ParameterLayout PatinaProcessor::createParam
 {
     std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
-    // Module amount parameters
+    // ---- Noise ----
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ "noise_amount", 1 }, "Noise", 0.0f, 1.0f, 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{ "wobble_amount", 1 }, "Wobble", 0.0f, 1.0f, 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{ "distort_amount", 1 }, "Distort", 0.0f, 1.0f, 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{ "space_amount", 1 }, "Space", 0.0f, 1.0f, 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{ "flux_amount", 1 }, "Flux", 0.0f, 1.0f, 0.0f));
-    params.push_back(std::make_unique<juce::AudioParameterFloat>(
-        juce::ParameterID{ "filter_amount", 1 }, "Filter", 0.0f, 1.0f, 0.5f));
+        juce::ParameterID{ "noise_tone", 1 }, "Noise Tone", 0.0f, 1.0f, 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{ "noise_type", 1 }, "Noise Type", 0, 2, 0));  // White/Pink/Brown
 
-    // Secondary module parameters
+    // ---- Wobble ----
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ "wobble_amount", 1 }, "Wobble", 0.0f, 1.0f, 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ "wobble_rate", 1 }, "Wobble Rate",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.3f));
+
+    // ---- Distort ----
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ "distort_amount", 1 }, "Distort", 0.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ "distort_tone", 1 }, "Distort Tone", 0.0f, 1.0f, 0.5f));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{ "distort_type", 1 }, "Distort Type", 0, 4, 0));  // Soft/Hard/Diode/Fold/Crush
+
+    // ---- Resonator ----
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ "resonator_amount", 1 }, "Resonator", 0.0f, 1.0f, 0.0f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ "resonator_freq", 1 }, "Resonator Freq", 0.0f, 1.0f, 0.3f));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ "resonator_reso", 1 }, "Resonator Reso", 0.0f, 1.0f, 0.3f));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{ "resonator_type", 1 }, "Resonator Type", 0, 2, 0));  // Comb/Modal/Formant
+
+    // ---- Space ----
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ "space_amount", 1 }, "Space", 0.0f, 1.0f, 0.0f));
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ "space_decay", 1 }, "Space Decay",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.3f));
 
-    // Master controls
+    // ---- Master ----
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ "mix", 1 }, "Mix", 0.0f, 1.0f, 1.0f));
 
@@ -55,7 +73,7 @@ const juce::String PatinaProcessor::getName() const
 bool PatinaProcessor::acceptsMidi() const  { return false; }
 bool PatinaProcessor::producesMidi() const { return false; }
 bool PatinaProcessor::isMidiEffect() const { return false; }
-double PatinaProcessor::getTailLengthSeconds() const { return 0.5; } // Reverb tail
+double PatinaProcessor::getTailLengthSeconds() const { return 0.5; }
 
 int PatinaProcessor::getNumPrograms()    { return 1; }
 int PatinaProcessor::getCurrentProgram() { return 0; }
@@ -65,15 +83,12 @@ void PatinaProcessor::changeProgramName(int, const juce::String&) {}
 
 void PatinaProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    // Prepare all DSP modules
     noiseModule.prepare(sampleRate, samplesPerBlock);
     wobbleModule.prepare(sampleRate, samplesPerBlock);
     distortModule.prepare(sampleRate, samplesPerBlock);
+    resonatorModule.prepare(sampleRate, samplesPerBlock);
     spaceModule.prepare(sampleRate, samplesPerBlock);
-    fluxModule.prepare(sampleRate, samplesPerBlock);
-    filterModule.prepare(sampleRate, samplesPerBlock);
 
-    // Reset FFT state
     fftInputBuffer.fill(0.0f);
     fftOutputBuffer.fill(0.0f);
     fftWriteIndex = 0;
@@ -81,13 +96,11 @@ void PatinaProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 void PatinaProcessor::releaseResources()
 {
-    // Reset all modules
     noiseModule.reset();
     wobbleModule.reset();
     distortModule.reset();
+    resonatorModule.reset();
     spaceModule.reset();
-    fluxModule.reset();
-    filterModule.reset();
 }
 
 bool PatinaProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -109,20 +122,30 @@ void PatinaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     auto totalNumInputChannels = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
-    // Clear any unused output channels
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    // ---- Read all parameters ----
-    float noiseAmount   = apvts.getRawParameterValue("noise_amount")->load();
-    float wobbleAmount  = apvts.getRawParameterValue("wobble_amount")->load();
-    float distortAmount = apvts.getRawParameterValue("distort_amount")->load();
-    float spaceAmount   = apvts.getRawParameterValue("space_amount")->load();
-    float fluxAmount    = apvts.getRawParameterValue("flux_amount")->load();
-    float filterAmount  = apvts.getRawParameterValue("filter_amount")->load();
-    float wobbleRate    = apvts.getRawParameterValue("wobble_rate")->load();
-    float spaceDecay    = apvts.getRawParameterValue("space_decay")->load();
-    float mix           = apvts.getRawParameterValue("mix")->load();
+    // ---- Read parameters ----
+    float noiseAmount     = apvts.getRawParameterValue("noise_amount")->load();
+    float noiseTone       = apvts.getRawParameterValue("noise_tone")->load();
+    int   noiseType       = static_cast<int>(apvts.getRawParameterValue("noise_type")->load());
+
+    float wobbleAmount    = apvts.getRawParameterValue("wobble_amount")->load();
+    float wobbleRate      = apvts.getRawParameterValue("wobble_rate")->load();
+
+    float distortAmount   = apvts.getRawParameterValue("distort_amount")->load();
+    float distortTone     = apvts.getRawParameterValue("distort_tone")->load();
+    int   distortType     = static_cast<int>(apvts.getRawParameterValue("distort_type")->load());
+
+    float resonatorAmount = apvts.getRawParameterValue("resonator_amount")->load();
+    float resonatorFreq   = apvts.getRawParameterValue("resonator_freq")->load();
+    float resonatorReso   = apvts.getRawParameterValue("resonator_reso")->load();
+    int   resonatorType   = static_cast<int>(apvts.getRawParameterValue("resonator_type")->load());
+
+    float spaceAmount     = apvts.getRawParameterValue("space_amount")->load();
+    float spaceDecay      = apvts.getRawParameterValue("space_decay")->load();
+
+    float mix             = apvts.getRawParameterValue("mix")->load();
 
     // ---- Save dry signal for mix ----
     juce::AudioBuffer<float> dryBuffer;
@@ -131,51 +154,24 @@ void PatinaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         dryBuffer.makeCopyOf(buffer);
     }
 
-    // ---- Update Flux modulation ----
-    // Flux generates random modulation signals that affect other modules
-    // Process updates modulation values AND applies amplitude flutter
-    fluxModule.process(buffer, fluxAmount);
+    // ---- Signal Chain: Noise -> Wobble -> Distort -> Resonator -> Space ----
 
-    // Get modulation offsets from Flux
-    float filterMod = fluxModule.getFilterMod();
-    float wobbleMod = fluxModule.getWobbleMod();
-    float noiseMod  = fluxModule.getNoiseMod();
+    // 1. NOISE -- adds texture to the signal
+    noiseModule.process(buffer, noiseAmount, noiseTone, noiseType);
 
-    // ---- Signal Chain ----
-    // Order: Noise (additive) → Wobble (delay) → Filter → Distort → Space
-    //
-    // Noise first: adds texture before everything else
-    // Wobble second: pitch warping on the textured signal
-    // Filter third: shapes frequency content before distortion
-    //   (filtering before distortion controls which harmonics are generated)
-    // Distort fourth: waveshaping on the filtered signal
-    // Space last: reverb on the final processed signal
-    //   (distortion before reverb sounds more natural than reverb before distortion)
-
-    // 1. NOISE — additive: mix noise into the signal
-    if (noiseAmount > 0.001f)
-    {
-        float modulatedNoise = std::min(noiseAmount + noiseMod * 0.3f, 1.0f);
-        noiseModule.process(buffer, modulatedNoise);
-    }
-
-    // 2. WOBBLE — volume tremolo with rate control
+    // 2. WOBBLE -- volume tremolo
     if (wobbleAmount > 0.001f)
     {
-        float modulatedWobble = std::min(wobbleAmount + wobbleMod * 0.2f, 1.0f);
-        wobbleModule.process(buffer, modulatedWobble, wobbleRate);
+        wobbleModule.process(buffer, wobbleAmount, wobbleRate);
     }
 
-    // 3. FILTER — frequency shaping (always processes, centered at 0.5 = flat)
-    filterModule.process(buffer, filterAmount, filterMod);
+    // 3. DISTORT -- waveshaping with post-EQ
+    distortModule.process(buffer, distortAmount, distortTone, distortType);
 
-    // 4. DISTORT — saturation and bit crushing
-    if (distortAmount > 0.001f)
-    {
-        distortModule.process(buffer, distortAmount);
-    }
+    // 4. RESONATOR -- comb/modal/formant coloring
+    resonatorModule.process(buffer, resonatorAmount, resonatorFreq, resonatorReso, resonatorType);
 
-    // 5. SPACE — plate reverb with independent decay
+    // 5. SPACE -- plate reverb
     if (spaceAmount > 0.001f)
     {
         spaceModule.process(buffer, spaceAmount, spaceDecay);
@@ -199,8 +195,6 @@ void PatinaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 
     // ---- Hard output clamp (safety net) ----
-    // Prevents any edge-case amplitude overages from reaching the DAW output.
-    // At unity gain this loop never fires; it's a last-resort guard.
     {
         auto numSamples = buffer.getNumSamples();
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -212,7 +206,6 @@ void PatinaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 
     // ---- Feed FFT for visualizer ----
-    // Push output samples into a circular buffer for FFT analysis
     {
         auto numSamples = buffer.getNumSamples();
         auto* leftChannel = buffer.getReadPointer(0);
@@ -225,12 +218,10 @@ void PatinaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             {
                 fftWriteIndex = 0;
 
-                // Copy input to output buffer for FFT
                 std::copy(fftInputBuffer.begin(),
                           fftInputBuffer.begin() + FFT_SIZE,
                           fftOutputBuffer.begin());
 
-                // Apply Hann window
                 for (int j = 0; j < FFT_SIZE; ++j)
                 {
                     float window = 0.5f * (1.0f - std::cos(2.0f * juce::MathConstants<float>::pi
@@ -239,7 +230,6 @@ void PatinaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                     fftOutputBuffer[static_cast<size_t>(j)] *= window;
                 }
 
-                // Perform FFT
                 fft.performFrequencyOnlyForwardTransform(fftOutputBuffer.data());
             }
         }
@@ -250,9 +240,10 @@ void PatinaProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
 
-    // Save lock state and preset index into the same ValueTree
     randomizeSystem.saveToValueTree(state);
     state.setProperty("presetIndex", presetManager.getCurrentIndex(), nullptr);
+    state.setProperty("isUserPreset", presetManager.isUserPreset(), nullptr);
+    state.setProperty("userPresetName", presetManager.getCurrentUserPresetName(), nullptr);
 
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
@@ -267,10 +258,23 @@ void PatinaProcessor::setStateInformation(const void* data, int sizeInBytes)
         {
             auto newState = juce::ValueTree::fromXml(*xmlState);
 
-            // Restore lock state and preset index before replacing APVTS state
             randomizeSystem.loadFromValueTree(newState);
             presetManager.setCurrentIndexOnly(
                 static_cast<int>(newState.getProperty("presetIndex", 0)));
+
+            // Restore user preset tracking (if a user preset was loaded when saved)
+            bool wasUserPreset = static_cast<bool>(newState.getProperty("isUserPreset", false));
+            juce::String userName = newState.getProperty("userPresetName", "").toString();
+
+            if (wasUserPreset && userName.isNotEmpty())
+            {
+                // Try to reload the user preset to verify it still exists
+                if (!presetManager.loadUserPreset(userName, apvts))
+                {
+                    // User preset file was deleted -- fall back to factory
+                    presetManager.setCurrentIndexOnly(0);
+                }
+            }
 
             apvts.replaceState(newState);
         }

@@ -48,15 +48,11 @@ void SpectralBloomComponent::timerCallback()
     // ---- Read module parameters ----
     auto& apvts = processorRef.getAPVTS();
 
-    // AGE parameter removed — use raw module values directly (same as processBlock)
-    effNoise   = apvts.getRawParameterValue("noise_amount")->load();
-    effWobble  = apvts.getRawParameterValue("wobble_amount")->load();
-    effDistort = apvts.getRawParameterValue("distort_amount")->load();
-    effSpace   = apvts.getRawParameterValue("space_amount")->load();
-    effFlux    = apvts.getRawParameterValue("flux_amount")->load();
-    effAge     = 1.0f;   // always "full intensity" visually since AGE knob removed
-
-    effFilter  = apvts.getRawParameterValue("filter_amount")->load();
+    effNoise     = apvts.getRawParameterValue("noise_amount")->load();
+    effWobble    = apvts.getRawParameterValue("wobble_amount")->load();
+    effDistort   = apvts.getRawParameterValue("distort_amount")->load();
+    effResonator = apvts.getRawParameterValue("resonator_amount")->load();
+    effSpace     = apvts.getRawParameterValue("space_amount")->load();
 
     // ---- Update FFT display data ----
     updateBinsFromFFT();
@@ -73,8 +69,8 @@ void SpectralBloomComponent::timerCallback()
     }
 
     // ---- Advance phase accumulators ----
-    phaseAccum += 0.04f;           // wobble visual sine
-    fluxPhase  += 0.07f;           // flux brightness sine
+    phaseAccum     += 0.04f;       // wobble visual sine
+    resonatorPhase += 0.09f;       // resonator shimmer
 
     // ---- Update particles ----
     updateParticles();
@@ -107,6 +103,12 @@ void SpectralBloomComponent::updateBinsFromFFT()
     const float* fftData = processorRef.getFFTData();
     const int fftHalf = PatinaProcessor::FFT_SIZE / 2;
 
+    // Normalize raw FFT magnitudes so a full-scale sine = 1.0 (0 dB).
+    // JUCE's unnormalized FFT produces magnitudes proportional to N/2,
+    // so a full-scale sine at any bin gives magnitude ~1024 for N=2048.
+    // Dividing by N/2 brings that back to 1.0.
+    static constexpr float fftNorm = 2.0f / static_cast<float>(PatinaProcessor::FFT_SIZE);
+
     for (int i = 0; i < kNumBins; ++i)
     {
         // Logarithmic mapping: get the FFT bin range for this display bin
@@ -129,7 +131,7 @@ void SpectralBloomComponent::updateBinsFromFFT()
             count = 1;
         }
 
-        const float avgMag = sumMag / static_cast<float>(count);
+        const float avgMag = (sumMag / static_cast<float>(count)) * fftNorm;
 
         // Convert to dB
         const float db = (avgMag > 1.0e-10f)
@@ -284,61 +286,12 @@ void SpectralBloomComponent::paint(juce::Graphics& g)
 
         const float barTop = baseY - barH;
 
-        // FILTER: dim bars in filtered frequency range
-        // Use FilterModule's actual exponential frequency mapping, converted
-        // to log-space display position so the dimming matches what you hear.
-        float filterDim = 1.0f;
+        // RESONATOR: harmonic shimmer — alternating bars pulse in brightness
+        float resoMod = 1.0f;
+        if (effResonator > 0.01f)
         {
-            const float normI = static_cast<float>(i) / static_cast<float>(kNumBins);
-            // log(1000) = log(20000/20) — the display spans ~20 Hz to ~20 kHz
-            const float logRange = std::log(1000.0f);
-
-            if (effFilter < 0.48f)
-            {
-                // High-pass active: replicate FilterModule math
-                // hpNorm = 1 - amount*2, freq = 20 * pow(25, hpNorm)
-                float hpNorm = 1.0f - effFilter * 2.0f;
-                float hpFreq = 20.0f * std::pow(25.0f, hpNorm);
-                float cutoffNormI = std::log(hpFreq / 20.0f) / logRange;
-                cutoffNormI = juce::jlimit(0.0f, 1.0f, cutoffNormI);
-
-                if (normI < cutoffNormI)
-                {
-                    float rampWidth = std::max(0.02f, cutoffNormI * 0.3f);
-                    float rampStart = cutoffNormI - rampWidth;
-                    if (normI < rampStart)
-                        filterDim = 0.15f;
-                    else
-                        filterDim = 0.15f + 0.85f * ((normI - rampStart) / rampWidth);
-                }
-            }
-            else if (effFilter > 0.52f)
-            {
-                // Low-pass active: replicate FilterModule math
-                // lpNorm = (amount-0.5)*2, freq = 800 * pow(25, 1-lpNorm)
-                float lpNorm = (effFilter - 0.5f) * 2.0f;
-                float lpFreq = 800.0f * std::pow(25.0f, 1.0f - lpNorm);
-                float cutoffNormI = std::log(lpFreq / 20.0f) / logRange;
-                cutoffNormI = juce::jlimit(0.0f, 1.0f, cutoffNormI);
-
-                if (normI > cutoffNormI)
-                {
-                    float rampWidth = std::max(0.02f, (1.0f - cutoffNormI) * 0.3f);
-                    float rampEnd = cutoffNormI + rampWidth;
-                    if (normI > rampEnd)
-                        filterDim = 0.15f;
-                    else
-                        filterDim = 0.15f + 0.85f * ((rampEnd - normI) / rampWidth);
-                }
-            }
-        }
-
-        // FLUX: per-bar brightness modulation
-        float fluxMod = 1.0f;
-        if (effFlux > 0.01f)
-        {
-            fluxMod = 1.0f - effFlux * 0.35f
-                      * (0.5f + 0.5f * std::sin(fluxPhase + static_cast<float>(i) * 0.3f));
+            resoMod = 1.0f - effResonator * 0.25f
+                      * (0.5f + 0.5f * std::sin(resonatorPhase + static_cast<float>(i) * 0.5f));
         }
 
         // Gradient: deep purple at bottom → bright purple at top
@@ -352,7 +305,7 @@ void SpectralBloomComponent::paint(juce::Graphics& g)
             barColour = barColour.interpolatedWith(white, whiteShift);
         }
 
-        barColour = barColour.withMultipliedAlpha(filterDim * fluxMod);
+        barColour = barColour.withMultipliedAlpha(resoMod);
 
         g.setColour(barColour);
         g.fillRect(x, barTop, barW, barH);
@@ -360,7 +313,7 @@ void SpectralBloomComponent::paint(juce::Graphics& g)
         // ---- 5. Glow overlay (wider, lower alpha) ----
         if (barH > 10.0f)
         {
-            const float glowAlpha = 0.10f * normH * filterDim * fluxMod;
+            const float glowAlpha = 0.10f * normH * resoMod;
             g.setColour(purpleBright.withAlpha(glowAlpha));
             g.fillRect(x - 1.5f, barTop, barW + 3.0f, barH);
         }

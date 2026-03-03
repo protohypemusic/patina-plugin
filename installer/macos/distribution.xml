@@ -2,52 +2,31 @@
 <installer-gui-script minSpecVersion="2">
     <title>Patina</title>
     <organization>com.futureproofmusic</organization>
-    <options
-        customize="allow"
-        require-scripts="false"
-        hostArchitectures="x86_64,arm64"
-    />
+    <options customize="allow" require-scripts="false" hostArchitectures="x86_64,arm64"/>
 
-    <!-- Minimum macOS version -->
-    <os-version min="12.0" />
+    <welcome    file="welcome.html"/>
+    <license    file="license.html"/>
+    <conclusion file="conclusion.html"/>
 
-    <!-- Branded pages -->
-    <welcome    file="welcome.html" />
-    <license    file="license.html" />
-    <conclusion file="conclusion.html" />
-
-    <!-- Component choices -->
     <choices-outline>
-        <line choice="vst3" />
-        <line choice="au" />
+        <line choice="vst3"/>
+        <line choice="au"/>
     </choices-outline>
 
-    <!-- VST3 Plugin -->
-    <choice
-        id="vst3"
-        title="VST3 Plugin"
-        description="Installs Patina.vst3 to /Library/Audio/Plug-Ins/VST3/ for use in any VST3-compatible DAW (Ableton, Logic, FL Studio, etc.)"
-        selected="true"
-    >
-        <pkg-ref id="com.futureproofmusic.patina.vst3" />
+    <choice id="vst3"
+            title="VST3 Plugin"
+            description="Installs Patina.vst3 to /Library/Audio/Plug-Ins/VST3/"
+            selected="true">
+        <pkg-ref id="com.futureproofmusic.patina.vst3"/>
     </choice>
 
-    <!-- Audio Unit -->
-    <choice
-        id="au"
-        title="Audio Unit (AU) Plugin"
-        description="Installs Patina.component to /Library/Audio/Plug-Ins/Components/ for use in Logic Pro, GarageBand, and other AU-compatible hosts."
-        selected="true"
-    >
-        <pkg-ref id="com.futureproofmusic.patina.au" />
+    <choice id="au"
+            title="Audio Unit Plugin"
+            description="Installs Patina.component to /Library/Audio/Plug-Ins/Components/"
+            selected="true">
+        <pkg-ref id="com.futureproofmusic.patina.au"/>
     </choice>
 
-    <!-- Package references -->
-    <pkg-ref id="com.futureproofmusic.patina.vst3"
-             version="1.0.0"
-             installKBytes="7000">#patina-vst3.pkg</pkg-ref>
-
-    <pkg-ref id="com.futureproofmusic.patina.au"
-             version="1.0.0"
-             installKBytes="7000">#patina-au.pkg</pkg-ref>
+    <pkg-ref id="com.futureproofmusic.patina.vst3" version="1.0.0">patina-vst3.pkg</pkg-ref>
+    <pkg-ref id="com.futureproofmusic.patina.au"   version="1.0.0">patina-au.pkg</pkg-ref>
 </installer-gui-script>

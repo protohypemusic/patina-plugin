@@ -6,9 +6,8 @@
 #include "dsp/NoiseModule.h"
 #include "dsp/WobbleModule.h"
 #include "dsp/DistortModule.h"
+#include "dsp/ResonatorModule.h"
 #include "dsp/SpaceModule.h"
-#include "dsp/FluxModule.h"
-#include "dsp/FilterModule.h"
 #include "RandomizeSystem.h"
 #include "PresetManager.h"
 
@@ -48,7 +47,7 @@ public:
     RandomizeSystem& getRandomizeSystem() { return randomizeSystem; }
     PresetManager&   getPresetManager()   { return presetManager; }
 
-    // Access to FFT data for the visualizer (Phase 5)
+    // FFT data for visualizer
     const float* getFFTData() const { return fftOutputBuffer.data(); }
     static constexpr int FFT_SIZE = 2048;
 
@@ -64,12 +63,12 @@ private:
     PresetManager presetManager;
 
     // ---- DSP Modules ----
-    NoiseModule noiseModule;
-    WobbleModule wobbleModule;
-    DistortModule distortModule;
-    SpaceModule spaceModule;
-    FluxModule fluxModule;
-    FilterModule filterModule;
+    // Signal chain: Noise -> Wobble -> Distort -> Resonator -> Space
+    NoiseModule     noiseModule;
+    WobbleModule    wobbleModule;
+    DistortModule   distortModule;
+    ResonatorModule resonatorModule;
+    SpaceModule     spaceModule;
 
     // ---- FFT for Visualizer ----
     juce::dsp::FFT fft { 11 }; // 2^11 = 2048

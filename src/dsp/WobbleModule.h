@@ -9,7 +9,7 @@
  * Sine-LFO amplitude modulation:
  *   - Rate knob (0-1) maps to 0.5-12 Hz (exponential)
  *   - Amount knob (0-1) controls depth from none to full
- *   - Stereo: R channel offset 25% for width
+ *   - Mono: both channels use same LFO phase (volume wobble, not pan)
  *   - Amount changes smoothed over ~10ms to avoid clicks
  */
 class WobbleModule

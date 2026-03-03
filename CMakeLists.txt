@@ -23,6 +23,11 @@ juce_add_plugin(Patina
     VST3_CATEGORIES "Fx"
 )
 
+juce_add_binary_data(PatinaAssets
+    SOURCES
+        assets/Panchang-Bold.otf
+)
+
 target_sources(Patina
     PRIVATE
         src/PluginProcessor.cpp
@@ -34,8 +39,7 @@ target_sources(Patina
         src/dsp/WobbleModule.cpp
         src/dsp/DistortModule.cpp
         src/dsp/SpaceModule.cpp
-        src/dsp/FluxModule.cpp
-        src/dsp/FilterModule.cpp
+        src/dsp/ResonatorModule.cpp
         src/visualizer/SpectralBloomComponent.cpp
 )
 
@@ -54,6 +58,7 @@ target_compile_definitions(Patina
 
 target_link_libraries(Patina
     PRIVATE
+        PatinaAssets
         juce::juce_audio_basics
         juce::juce_audio_devices
         juce::juce_audio_formats

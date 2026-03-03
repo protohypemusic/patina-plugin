@@ -1,96 +1,110 @@
 #include "RandomizeSystem.h"
-#include <chrono>
+#include <cmath>
 
-// Parameter IDs — must match createParameterLayout() in PluginProcessor.cpp
-const char* RandomizeSystem::paramIds[NUM_MODULES] = {
-    "noise_amount",   // Noise
-    "wobble_amount",  // Wobble
-    "distort_amount", // Distort
-    "space_amount",   // Space
-    "flux_amount",    // Flux
-    "filter_amount",  // Filter
-    "mix",            // Mix
-    "wobble_rate",    // WobbleRate
-    "space_decay"     // SpaceDecay
+// Module name strings used as save/load keys
+const char* RandomizeSystem::moduleNames[NUM_MODULES] = {
+    "noise", "wobble", "distort", "resonator", "space", "mix"
 };
 
-// Weighted ranges — designed to produce usable patches, not just chaos
-// All parameters have range [0, 1] in APVTS, so these are actual values
-const RandomizeSystem::Range RandomizeSystem::ranges[NUM_MODULES] = {
-    { 0.00f, 0.45f },  // Noise:      subtle to moderate — above 0.5 is too harsh
-    { 0.00f, 0.50f },  // Wobble:     up to medium tremolo
-    { 0.00f, 0.60f },  // Distort:    full saturation range
-    { 0.00f, 0.70f },  // Space:      reverb is pleasant across a wide range
-    { 0.00f, 0.55f },  // Flux:       heavy glitch is disorienting above ~0.6
-    { 0.30f, 0.70f },  // Filter:     keep near center — extremes are too coloring
-    { 0.50f, 1.00f },  // Mix:        keep reasonably wet
-    { 0.10f, 0.70f },  // WobbleRate: avoid extremes (very slow / ring-mod)
-    { 0.10f, 0.80f },  // SpaceDecay: avoid extremes (too tight / infinite wash)
+// Flat parameter table -- each entry tagged with its owner module.
+// Ranges are tuned for musically useful randomization results.
+const RandomizeSystem::ParamEntry RandomizeSystem::params[NUM_PARAMS] = {
+    // Noise
+    { "noise_amount", 0.00f, 0.45f, false, ModuleId::Noise },
+    { "noise_tone",   0.20f, 0.80f, false, ModuleId::Noise },
+    { "noise_type",   0.00f, 2.00f, true,  ModuleId::Noise },    // White/Pink/Brown
+
+    // Wobble
+    { "wobble_amount", 0.00f, 0.50f, false, ModuleId::Wobble },
+    { "wobble_rate",   0.10f, 0.70f, false, ModuleId::Wobble },
+
+    // Distort
+    { "distort_amount", 0.00f, 0.60f, false, ModuleId::Distort },
+    { "distort_tone",   0.20f, 0.80f, false, ModuleId::Distort },
+    { "distort_type",   0.00f, 4.00f, true,  ModuleId::Distort }, // Soft/Hard/Diode/Fold/Crush
+
+    // Resonator
+    { "resonator_amount", 0.00f, 0.55f, false, ModuleId::Resonator },
+    { "resonator_freq",   0.10f, 0.80f, false, ModuleId::Resonator },
+    { "resonator_reso",   0.10f, 0.60f, false, ModuleId::Resonator },
+    { "resonator_type",   0.00f, 2.00f, true,  ModuleId::Resonator }, // Comb/Modal/Formant
+
+    // Space
+    { "space_amount", 0.00f, 0.70f, false, ModuleId::Space },
+    { "space_decay",  0.10f, 0.80f, false, ModuleId::Space },
+
+    // Mix
+    { "mix",          0.50f, 1.00f, false, ModuleId::Mix },
 };
 
 RandomizeSystem::RandomizeSystem()
-    : rng(static_cast<unsigned>(
-          std::chrono::high_resolution_clock::now().time_since_epoch().count()))
 {
-    for (int i = 0; i < NUM_MODULES; ++i)
-        lockState[i] = false;
+    locked.fill(false);
 }
 
-float RandomizeSystem::randomInRange(float min, float max)
+bool RandomizeSystem::isLocked(ModuleId m) const
 {
-    std::uniform_real_distribution<float> dist(min, max);
-    return dist(rng);
+    return locked[static_cast<int>(m)];
+}
+
+void RandomizeSystem::setLocked(ModuleId m, bool lock)
+{
+    locked[static_cast<int>(m)] = lock;
+}
+
+void RandomizeSystem::toggleLocked(ModuleId m)
+{
+    int idx = static_cast<int>(m);
+    locked[idx] = !locked[idx];
 }
 
 void RandomizeSystem::randomize(juce::AudioProcessorValueTreeState& apvts)
 {
-    for (int i = 0; i < NUM_MODULES; ++i)
+    for (int i = 0; i < NUM_PARAMS; ++i)
     {
-        if (lockState[i])
+        auto& entry = params[i];
+
+        // Skip if this parameter's owner module is locked
+        if (locked[static_cast<int>(entry.owner)])
             continue;
 
-        float val = randomInRange(ranges[i].minVal, ranges[i].maxVal);
+        auto* param = apvts.getParameter(entry.id);
+        if (param == nullptr)
+            continue;
 
-        if (auto* param = apvts.getParameter(paramIds[i]))
+        if (entry.isInt)
         {
-            // All our params have range [0,1], so actual value == normalized value.
-            // convertTo0to1 makes this explicit and safe for future range changes.
+            // Integer parameter: pick a random int in [min, max]
+            int intMin = static_cast<int>(entry.minVal);
+            int intMax = static_cast<int>(entry.maxVal);
+            int val = intMin + rng.nextInt(intMax - intMin + 1);
+            param->setValueNotifyingHost(
+                param->convertTo0to1(static_cast<float>(val)));
+        }
+        else
+        {
+            // Float parameter: random in [min, max]
+            float val = entry.minVal + rng.nextFloat() * (entry.maxVal - entry.minVal);
             param->setValueNotifyingHost(param->convertTo0to1(val));
         }
     }
 }
 
-void RandomizeSystem::setLocked(ModuleId id, bool locked)
-{
-    lockState[static_cast<int>(id)] = locked;
-}
-
-bool RandomizeSystem::isLocked(ModuleId id) const
-{
-    return lockState[static_cast<int>(id)];
-}
-
-void RandomizeSystem::toggleLock(ModuleId id)
-{
-    int idx = static_cast<int>(id);
-    lockState[idx] = !lockState[idx];
-}
-
-void RandomizeSystem::saveToValueTree(juce::ValueTree& tree) const
+void RandomizeSystem::saveToValueTree(juce::ValueTree& state) const
 {
     for (int i = 0; i < NUM_MODULES; ++i)
     {
-        juce::String key = "lock_" + juce::String(paramIds[i]);
-        tree.setProperty(key, lockState[i], nullptr);
+        juce::String key = juce::String("lock_") + moduleNames[i];
+        state.setProperty(key, locked[static_cast<size_t>(i)], nullptr);
     }
 }
 
-void RandomizeSystem::loadFromValueTree(const juce::ValueTree& tree)
+void RandomizeSystem::loadFromValueTree(const juce::ValueTree& state)
 {
     for (int i = 0; i < NUM_MODULES; ++i)
     {
-        juce::String key = "lock_" + juce::String(paramIds[i]);
-        if (tree.hasProperty(key))
-            lockState[i] = static_cast<bool>(tree.getProperty(key));
+        juce::String key = juce::String("lock_") + moduleNames[i];
+        if (state.hasProperty(key))
+            locked[static_cast<size_t>(i)] = static_cast<bool>(state.getProperty(key));
     }
 }

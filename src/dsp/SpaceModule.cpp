@@ -81,6 +81,20 @@ float SpaceModule::SimpleDelay::readAt(int offset) const
     return buffer[static_cast<size_t>(idx % static_cast<int>(buffer.size()))];
 }
 
+float SpaceModule::SimpleDelay::readFractional(float offset) const
+{
+    int bufSize = static_cast<int>(buffer.size());
+    float readPos = static_cast<float>(writeIndex) - offset;
+    while (readPos < 0.0f) readPos += static_cast<float>(bufSize);
+
+    int idx0 = static_cast<int>(readPos) % bufSize;
+    int idx1 = (idx0 + 1) % bufSize;
+    float frac = readPos - std::floor(readPos);
+
+    return buffer[static_cast<size_t>(idx0)] * (1.0f - frac)
+         + buffer[static_cast<size_t>(idx1)] * frac;
+}
+
 // ============================================================
 // SpaceModule
 // ============================================================
@@ -102,15 +116,18 @@ void SpaceModule::prepare(double newSampleRate, int /*samplesPerBlock*/)
     inputDiffusers[2].setDelay(static_cast<int>(379.0f * scale));
     inputDiffusers[3].setDelay(static_cast<int>(277.0f * scale));
 
+    // Extra buffer space for modulated delay reads (±modExcursion + safety)
+    int modExtra = static_cast<int>(16.0f * scale) + 8;
+
     // Tank delays (Loop 1)
-    tankDelay1a.setMaxDelay(static_cast<int>(672.0f * scale) + 1);
+    tankDelay1a.setMaxDelay(static_cast<int>(672.0f * scale) + modExtra);
     tankDelay1a.setDelay(static_cast<int>(672.0f * scale));
     tankAllpass1.setDelay(static_cast<int>(908.0f * scale));
     tankDelay1b.setMaxDelay(static_cast<int>(4453.0f * scale) + 1);
     tankDelay1b.setDelay(static_cast<int>(4453.0f * scale));
 
     // Tank delays (Loop 2)
-    tankDelay2a.setMaxDelay(static_cast<int>(1800.0f * scale) + 1);
+    tankDelay2a.setMaxDelay(static_cast<int>(1800.0f * scale) + modExtra);
     tankDelay2a.setDelay(static_cast<int>(1800.0f * scale));
     tankAllpass2.setDelay(static_cast<int>(672.0f * scale));
     tankDelay2b.setMaxDelay(static_cast<int>(3720.0f * scale) + 1);
@@ -139,6 +156,15 @@ void SpaceModule::prepare(double newSampleRate, int /*samplesPerBlock*/)
     taps.rightTaps[5] = static_cast<int>(335.0f * scale);
     taps.rightTaps[6] = static_cast<int>(121.0f * scale);
 
+    // Tank modulation LFOs — different rates to avoid phase-locking
+    // These slowly vary the delay read positions, smearing comb filter peaks
+    // that cause the "tonal" coloration in fixed-delay reverbs
+    lfoRate1 = 0.5f / static_cast<float>(sampleRate);    // 0.50 Hz
+    lfoRate2 = 0.31f / static_cast<float>(sampleRate);   // 0.31 Hz
+    lfoPhase1 = 0.0f;
+    lfoPhase2 = 0.0f;
+    modExcursion = 16.0f * scale;  // ±16 samples at reference rate, scaled
+
     // Smoothed parameters
     smoothedDecay.reset(sampleRate, 0.05); // 50ms ramp
     smoothedDamping.reset(sampleRate, 0.05);
@@ -165,6 +191,8 @@ void SpaceModule::reset()
     damping2_z1 = 0.0f;
     tank1bOutput = 0.0f;
     tank2bOutput = 0.0f;
+    lfoPhase1 = 0.0f;
+    lfoPhase2 = 0.0f;
 }
 
 // Soft-clip to prevent energy blowup in feedback loops
@@ -190,8 +218,8 @@ void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float 
     // decayParam 0.0 -> tight room (0.2), 1.0 -> long ambient wash (0.90)
     // Capped at 0.90 to prevent runaway feedback in the cross-coupled tank
     float targetDecay = 0.2f + 0.70f * decayParam;
-    // Damping tied to decay: brighter at low decay, darker at high
-    float targetDamping = 0.3f + 0.4f * decayParam;
+    // Damping tied to decay: always somewhat dark to avoid metallic ringing
+    float targetDamping = 0.45f + 0.35f * decayParam;
     smoothedDecay.setTargetValue(targetDecay);
     smoothedDamping.setTargetValue(targetDamping);
 
@@ -214,21 +242,34 @@ void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float 
         float preDelayed = preDelay.read();
 
         // Input diffusion: 4 cascaded allpass filters
+        // Lower gains reduce resonant coloration
         float diffused = preDelayed;
-        diffused = inputDiffusers[0].process(diffused, 0.75f);
-        diffused = inputDiffusers[1].process(diffused, 0.75f);
-        diffused = inputDiffusers[2].process(diffused, 0.625f);
-        diffused = inputDiffusers[3].process(diffused, 0.625f);
+        diffused = inputDiffusers[0].process(diffused, 0.60f);
+        diffused = inputDiffusers[1].process(diffused, 0.60f);
+        diffused = inputDiffusers[2].process(diffused, 0.50f);
+        diffused = inputDiffusers[3].process(diffused, 0.50f);
+
+        // ---- Advance tank modulation LFOs ----
+        // Slow sinusoidal modulation of delay read positions
+        // smears the comb filter peaks that cause tonal coloration
+        lfoPhase1 += lfoRate1;
+        if (lfoPhase1 >= 1.0f) lfoPhase1 -= 1.0f;
+        lfoPhase2 += lfoRate2;
+        if (lfoPhase2 >= 1.0f) lfoPhase2 -= 1.0f;
+
+        float mod1 = std::sin(lfoPhase1 * 6.2831853f) * modExcursion;
+        float mod2 = std::sin(lfoPhase2 * 6.2831853f) * modExcursion;
 
         // ---- Tank Loop 1 ----
         float tankIn1 = diffused + softClip(tank2bOutput) * currentDecay;
 
-        // Allpass in loop 1
-        float ap1Out = tankAllpass1.process(tankIn1, -0.7f);
+        // Allpass in loop 1 (lower gain = less resonant coloration)
+        float ap1Out = tankAllpass1.process(tankIn1, -0.5f);
 
-        // Delay 1a
+        // Delay 1a (modulated read for smeared resonances)
         tankDelay1a.write(ap1Out);
-        float d1aOut = tankDelay1a.read();
+        float d1aDelay = static_cast<float>(tankDelay1a.getDelayLength());
+        float d1aOut = tankDelay1a.readFractional(std::max(1.0f, d1aDelay + mod1));
 
         // Damping lowpass (one-pole)
         damping1_z1 = d1aOut * (1.0f - currentDamping) + damping1_z1 * currentDamping;
@@ -241,12 +282,13 @@ void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float 
         // ---- Tank Loop 2 ----
         float tankIn2 = diffused + softClip(tank1bOutput) * currentDecay;
 
-        // Allpass in loop 2
-        float ap2Out = tankAllpass2.process(tankIn2, -0.7f);
+        // Allpass in loop 2 (lower gain = less resonant coloration)
+        float ap2Out = tankAllpass2.process(tankIn2, -0.5f);
 
-        // Delay 2a
+        // Delay 2a (modulated read for smeared resonances)
         tankDelay2a.write(ap2Out);
-        float d2aOut = tankDelay2a.read();
+        float d2aDelay = static_cast<float>(tankDelay2a.getDelayLength());
+        float d2aOut = tankDelay2a.readFractional(std::max(1.0f, d2aDelay + mod2));
 
         // Damping lowpass (one-pole)
         damping2_z1 = d2aOut * (1.0f - currentDamping) + damping2_z1 * currentDamping;

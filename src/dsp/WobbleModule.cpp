@@ -19,7 +19,7 @@ void WobbleModule::prepare(double newSampleRate, int /*samplesPerBlock*/)
 void WobbleModule::reset()
 {
     phaseL = 0.0f;
-    phaseR = 0.25f;  // R channel 25% offset for stereo width
+    phaseR = 0.0f;  // Same phase as L — mono volume tremolo, not stereo pan
     smoothedAmount = 0.0f;
 }
 

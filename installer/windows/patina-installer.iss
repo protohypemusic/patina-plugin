@@ -1,68 +1,59 @@
-; ============================================================
-; Patina VST3 Plugin Installer — Windows
+; ================================================================
+; Patina VST3 Plugin - Windows Installer
 ; Built with Inno Setup 6 (https://jrsoftware.org/isinfo.php)
 ;
-; Compile:
-;   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" patina-installer.iss
-;
-; Output:
-;   ../output/Patina-1.0.0-Windows.exe
-; ============================================================
+; Usage:
+;   1. Build Patina in Release mode:
+;      cmake --build build --config Release
+;   2. Compile this installer:
+;      "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\windows\patina-installer.iss
+;   3. Output: installer\output\Patina-1.0.0-Windows.exe
+; ================================================================
 
-#define MyAppName      "Patina"
-#define MyAppVersion   "1.0.0"
+#define MyAppName "Patina"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "Futureproof Music School"
-#define MyAppURL       "https://futureproofmusicschool.com"
-
-; Path to build artifacts (relative to this .iss file)
-#define BuildRoot      "..\..\build\Patina_artefacts\Release"
+#define MyAppURL "https://futureproofmusicschool.com"
 
 [Setup]
-AppId={{B7E3F1A2-4C5D-4E6F-8A9B-0C1D2E3F4A5B}
+AppId={{B7E3F4A2-9C1D-4E5F-A8B6-2D7C9E0F1A3B}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
-DefaultDirName={commoncf}\VST3
+DefaultDirName={autopf}\{#MyAppPublisher}\{#MyAppName}
+DefaultGroupName={#MyAppPublisher}\{#MyAppName}
 DisableProgramGroupPage=yes
-DisableDirPage=yes
 OutputDir=..\output
 OutputBaseFilename=Patina-{#MyAppVersion}-Windows
-Compression=lzma2/ultra64
+Compression=lzma2
 SolidCompression=yes
-PrivilegesRequired=admin
-ArchitecturesAllowed=x64compatible
-CreateUninstallRegKey=yes
-UninstallDisplayName={#MyAppName}
-
-; --- Branding ---
 WizardStyle=modern
-WizardSizePercent=100
-SetupIconFile=compiler:SetupClassicIcon.ico
+PrivilegesRequired=admin
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
-; ============================================================
-; Files to install — VST3 only
-; ============================================================
-[Files]
-Source: "{#BuildRoot}\VST3\Patina.vst3\Contents\x86_64-win\Patina.vst3"; DestDir: "{commoncf}\VST3\Patina.vst3\Contents\x86_64-win"; Flags: ignoreversion
-Source: "{#BuildRoot}\VST3\Patina.vst3\Contents\Resources\moduleinfo.json"; DestDir: "{commoncf}\VST3\Patina.vst3\Contents\Resources"; Flags: ignoreversion
+[Types]
+Name: "full"; Description: "Full installation (VST3)"
+Name: "custom"; Description: "Custom installation"; Flags: iscustom
 
-; ============================================================
-; Uninstall — clean up VST3 from common files
-; ============================================================
+[Components]
+Name: "vst3"; Description: "VST3 Plugin"; Types: full custom; Flags: fixed
+
+[Files]
+; VST3 plugin bundle - the entire .vst3 folder
+Source: "..\..\build\Patina_artefacts\Release\VST3\Patina.vst3\*"; DestDir: "{commoncf}\VST3\Patina.vst3"; Components: vst3; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
+
+[Messages]
+WelcomeLabel1=Welcome to the {#MyAppName} Setup Wizard
+WelcomeLabel2=This will install {#MyAppName} {#MyAppVersion} by {#MyAppPublisher} on your computer.%n%n{#MyAppName} is a lo-fi texture and degradation plugin for adding character to your productions.%n%nVST3 will be installed to the standard plugin directory so your DAW can find it automatically.
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{commoncf}\VST3\Patina.vst3"
-
-; ============================================================
-; Custom messages
-; ============================================================
-[Messages]
-WelcomeLabel1=Welcome to the Patina Installer
-WelcomeLabel2=This will install Patina {#MyAppVersion} on your computer.%n%nPatina is a lo-fi texture plugin by Futureproof Music School. It adds noise, wobble, distortion, space, flux, and filter effects to shape your sound.%n%nClick Next to continue.
-FinishedHeadingLabel=Patina is installed!
-FinishedLabel=Patina {#MyAppVersion} has been installed on your computer.%n%nVST3 location: C:\Program Files\Common Files\VST3\Patina.vst3%n%nOpen your DAW and rescan plugins to start using Patina.%n%nVisit futureproofmusicschool.com for tutorials and updates.
