@@ -182,7 +182,7 @@ jobs:
           body: |
             ## Patina ${{ steps.version.outputs.version }}
 
-            A lo-fi texture plugin by Futureproof Music School.
+            An all-in-one effect plugin by Futureproof.
 
             ### Download
 
@@ -198,13 +198,16 @@ jobs:
             3. Open your DAW and rescan plugins
             4. Find **Patina** in your effects list
 
-            ### What's Inside
+            ### Modules
 
-            6 lo-fi texture modules: **Noise**, **Wobble**, **Distort**, **Space**, **Flux**, **Filter**
-            12 presets, randomize system, and a spectral bloom visualizer.
+            5 effect modules: **Noise**, **Wobble**, **Distort**, **Resonator**, **Space**
+            - Tempo-synced tremolo with sine-to-square shape control
+            - 4 space algorithms (Plate, Room, Hall, Tonal)
+            - Randomize and lock system with presets
+            - Spectral bloom visualizer
 
             ---
-            *Made by [Futureproof Music School](https://futureproofmusicschool.com)*
+            *Made by [Futureproof](https://futureproofmusicschool.com)*
           files: release-files/*
           draft: false
           prerelease: false
