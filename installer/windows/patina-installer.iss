@@ -7,11 +7,11 @@
 ;      cmake --build build --config Release
 ;   2. Compile this installer:
 ;      "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\windows\patina-installer.iss
-;   3. Output: installer\output\Patina-1.0.0-Windows.exe
+;   3. Output: installer\output\Patina-1.1.0-Windows.exe
 ; ================================================================
 
 #define MyAppName "Patina"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Max Pote"
 #define MyAppURL "https://futureproofmusicschool.com"
 

@@ -9,12 +9,12 @@
 #   2. Run this script:
 #      chmod +x installer/macos/build-pkg.sh
 #      ./installer/macos/build-pkg.sh
-#   3. Output: installer/output/Patina-1.0.0-macOS.pkg
+#   3. Output: installer/output/Patina-1.1.0-macOS.pkg
 # ================================================================
 
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 IDENTIFIER="com.futureproofmusic.patina"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
