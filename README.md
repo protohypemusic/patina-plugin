@@ -1,19 +1,18 @@
 # Patina
 
-A lo-fi texture plugin by [Futureproof Music School](https://futureproofmusicschool.com).
+An all-in-one effect plugin by [Futureproof](https://futureproofmusicschool.com).
 
-6 processing modules, 12 presets, a randomize system, and a spectral bloom visualizer.
+5 effect modules, presets, a randomize system, and a spectral bloom visualizer.
 
 **Free download for everyone.**
 
 ## Modules
 
-- **NOISE** -- Vinyl crackle, tape hiss, static
-- **WOBBLE** -- Volume tremolo with adjustable rate
-- **DISTORT** -- Continuous saturation (soft to hard clipping)
-- **SPACE** -- Reverb with independent decay control
-- **FLUX** -- Beat repeat / glitch across the full tempo range
-- **FILTER** -- High/low cut shaping
+- **NOISE** -- Vinyl crackle, tape hiss, static (White / Pink / Crackle)
+- **WOBBLE** -- Volume tremolo with tempo sync and sine-to-square shape control
+- **DISTORT** -- Saturation from warm to aggressive (Soft / Hard / Diode / Fold / Crush)
+- **RESONATOR** -- Comb, modal, or formant coloring with frequency and resonance control
+- **SPACE** -- Reverb and delay (Plate / Room / Hall / Tonal)
 
 ## Download
 
@@ -32,7 +31,7 @@ After installing, open your DAW, rescan plugins, and find **Patina** in your eff
 Requires CMake 3.22+ and a C++17 compiler (Visual Studio 2022 or Xcode 14+).
 
 ```bash
-git clone --recursive https://github.com/FutureproofMusicSchool/patina-plugin.git
+git clone --recursive https://github.com/protohypemusic/patina-plugin.git
 cd patina-plugin
 cmake -B build
 cmake --build build --config Release
@@ -45,8 +44,8 @@ See [installer/README.md](installer/README.md) for creating distributable instal
 Push a version tag to auto-build installers for both platforms:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
 GitHub Actions builds the Windows .exe and macOS .pkg installers and publishes them as a Release.
@@ -55,4 +54,4 @@ GitHub Actions builds the Windows .exe and macOS .pkg installers and publishes t
 
 Free to use for personal and commercial music production. See the [license](installer/macos/license.html) for full terms.
 
-Made by [Futureproof Music School](https://futureproofmusicschool.com).
+Made by [Futureproof](https://futureproofmusicschool.com).
