@@ -11,8 +11,8 @@
  * Signal chain: Noise -> Wobble -> Distort -> Resonator -> Space
  *
  * User preset directory:
- *   Windows: %APPDATA%\Futureproof Music School\Patina\Presets\
- *   macOS:   ~/Library/Application Support/Futureproof Music School/Patina/Presets/
+ *   Windows: %APPDATA%\Max Pote\Patina\Presets\
+ *   macOS:   ~/Library/Application Support/Max Pote/Patina/Presets/
  */
 class PresetManager
 {

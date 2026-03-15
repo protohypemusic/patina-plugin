@@ -90,6 +90,7 @@ private:
 
     SecondaryKnob noiseTone;
     SecondaryKnob wobbleRate;
+    SecondaryKnob wobbleShape;
     SecondaryKnob distortTone;
     SecondaryKnob resonatorFreq;
     SecondaryKnob resonatorReso;
@@ -99,14 +100,18 @@ private:
                             const juce::String& paramId, double defaultValue,
                             const juce::String& tooltip);
 
-    // ---- Type selector buttons (3 modules) ----
+    // ---- Type selector buttons (3 modules + wobble sync) ----
     juce::TextButton noiseTypeButton;
+    juce::TextButton wobbleSyncButton;
     juce::TextButton distortTypeButton;
     juce::TextButton resonatorTypeButton;
+    juce::TextButton spaceTypeButton;
 
     static const char* const kNoiseTypeNames[3];
+    static const char* const kWobbleRateModeNames[9];
     static const char* const kDistortTypeNames[5];
     static const char* const kResonatorTypeNames[3];
+    static const char* const kSpaceTypeNames[4];
 
     // ---- Master controls ----
     juce::Slider mixKnob;

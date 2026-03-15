@@ -36,12 +36,20 @@ const char* const PatinaEditor::kNoiseTypeNames[3] = {
     "WHITE", "PINK", "CRACKLE"
 };
 
+const char* const PatinaEditor::kWobbleRateModeNames[9] = {
+    "FREE", "1/1", "1/2", "1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32"
+};
+
 const char* const PatinaEditor::kDistortTypeNames[5] = {
     "SOFT", "HARD", "DIODE", "FOLD", "CRUSH"
 };
 
 const char* const PatinaEditor::kResonatorTypeNames[3] = {
     "COMB", "MODAL", "FORMANT"
+};
+
+const char* const PatinaEditor::kSpaceTypeNames[4] = {
+    "PLATE", "ROOM", "HALL", "TONAL"
 };
 
 // ----------------------------------------------------------------
@@ -134,8 +142,7 @@ PatinaEditor::PatinaEditor(PatinaProcessor& p)
 
         // Knob
         strip.knob.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-        strip.knob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 16);
-        strip.knob.setNumDecimalPlacesToDisplay(2);
+        strip.knob.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         strip.knob.setDoubleClickReturnValue(true, static_cast<double>(kModuleDefaults[i]));
         strip.knob.setTooltip(kModuleTooltips[i]);
         addAndMakeVisible(strip.knob);
@@ -170,6 +177,8 @@ PatinaEditor::PatinaEditor(PatinaProcessor& p)
                        "TONE -- sweeps noise colour from dark to bright. Double-click to reset.");
     setupSecondaryKnob(wobbleRate,    "RATE",  "wobble_rate",    0.3,
                        "RATE -- tremolo speed from slow pulse to fast ring-mod. Double-click to reset.");
+    setupSecondaryKnob(wobbleShape,  "SHAPE", "wobble_shape",   0.0,
+                       "SHAPE -- LFO waveform from smooth sine to hard square chop. Double-click to reset.");
     setupSecondaryKnob(distortTone,   "TONE",  "distort_tone",   0.5,
                        "TONE -- post-distortion EQ from dark to bright. Double-click to reset.");
     setupSecondaryKnob(resonatorFreq, "FREQ",  "resonator_freq", 0.3,
@@ -200,6 +209,20 @@ PatinaEditor::PatinaEditor(PatinaProcessor& p)
     setupTypeButton(noiseTypeButton,     "noise_type",     3);
     setupTypeButton(distortTypeButton,   "distort_type",   5);
     setupTypeButton(resonatorTypeButton, "resonator_type", 3);
+    setupTypeButton(spaceTypeButton,     "space_type",     4);
+
+    // Wobble sync button -- cycles through FREE, 1/1, 1/2, ... 1/32
+    wobbleSyncButton.setName("type_selector");
+    wobbleSyncButton.onClick = [this, &apvts]
+    {
+        if (auto* param = apvts.getParameter("wobble_rate_mode"))
+        {
+            int current = static_cast<int>(param->convertFrom0to1(param->getValue()));
+            int next = (current + 1) % 9;
+            param->setValueNotifyingHost(param->convertTo0to1(static_cast<float>(next)));
+        }
+    };
+    addAndMakeVisible(wobbleSyncButton);
 
     // ---- Master knobs ----
     setupMasterKnob(mixKnob, mixLabel, "MIX", apvts, "mix", mixAttachment,
@@ -256,6 +279,22 @@ void PatinaEditor::syncTypeButtons()
         noiseTypeButton.setButtonText(kNoiseTypeNames[val]);
     }
 
+    // Wobble rate mode (sync)
+    {
+        int val = static_cast<int>(apvts.getRawParameterValue("wobble_rate_mode")->load());
+        val = juce::jlimit(0, 8, val);
+        wobbleSyncButton.setButtonText(kWobbleRateModeNames[val]);
+
+        // Swap rate/shape knob based on mode:
+        // FREE: show rate knob, hide shape knob
+        // Synced: show shape knob, hide rate knob
+        bool isFree = (val == 0);
+        wobbleRate.knob.setVisible(isFree);
+        wobbleRate.label.setVisible(isFree);
+        wobbleShape.knob.setVisible(!isFree);
+        wobbleShape.label.setVisible(!isFree);
+    }
+
     // Distort type
     {
         int val = static_cast<int>(apvts.getRawParameterValue("distort_type")->load());
@@ -268,6 +307,13 @@ void PatinaEditor::syncTypeButtons()
         int val = static_cast<int>(apvts.getRawParameterValue("resonator_type")->load());
         val = juce::jlimit(0, 2, val);
         resonatorTypeButton.setButtonText(kResonatorTypeNames[val]);
+    }
+
+    // Space type
+    {
+        int val = static_cast<int>(apvts.getRawParameterValue("space_type")->load());
+        val = juce::jlimit(0, 3, val);
+        spaceTypeButton.setButtonText(kSpaceTypeNames[val]);
     }
 }
 
@@ -504,8 +550,7 @@ void PatinaEditor::setupMasterKnob(juce::Slider& knob, juce::Label& label,
                                     const juce::String& tooltip)
 {
     knob.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-    knob.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 16);
-    knob.setNumDecimalPlacesToDisplay(2);
+    knob.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     knob.setDoubleClickReturnValue(true, defaultValue);
     knob.setTooltip(tooltip);
     addAndMakeVisible(knob);
@@ -556,8 +601,14 @@ void PatinaEditor::paint(juce::Graphics& g)
 
         g.setColour(juce::Colour(PatinaLookAndFeel::colourWhite));
         g.setFont(lookAndFeel.getPanchangFont(22.0f));
+        const int patinaY = (kHeaderH - 36) / 2;
         g.drawText("PATINA",
-                   juce::Rectangle<int>(static_cast<int>(brandX), (kHeaderH - 26) / 2, 250, 26),
+                   juce::Rectangle<int>(static_cast<int>(brandX), patinaY, 250, 26),
+                   juce::Justification::centredLeft, false);
+
+        g.setFont(lookAndFeel.getPanchangFont(8.0f));
+        g.drawText("by FUTUREPROOF",
+                   juce::Rectangle<int>(static_cast<int>(brandX), patinaY + 24, 250, 14),
                    juce::Justification::centredLeft, false);
     }
 
@@ -610,12 +661,7 @@ void PatinaEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colour(PatinaLookAndFeel::colourSubtle));
     g.drawHorizontalLine(masterArea.getY(), 0.0f, static_cast<float>(kEditorWidth));
 
-    // Master caption
-    g.setColour(juce::Colour(PatinaLookAndFeel::colourWhite).withAlpha(0.20f));
-    g.setFont(juce::FontOptions(9.0f).withStyle("Bold"));
-    g.drawText("MASTER",
-               juce::Rectangle<int>(0, masterArea.getY() + 6, kEditorWidth, 14),
-               juce::Justification::centred, false);
+
 }
 
 // ----------------------------------------------------------------
@@ -639,20 +685,20 @@ void PatinaEditor::resized()
     initButton.setBounds(initX, btnY, initW, btnH);
 
     // Preset selector: centered in the available space
-    // Layout: [<] [SAVE] [  preset name  ] [>]
+    // Layout: [SAVE] [<] [  preset name  ] [>]
     const int navW     = 28;
     const int saveW    = 50;
     const int nameW    = 180;
     const int gap      = 4;
-    const int selectorW = navW + gap + saveW + gap + nameW + gap + navW;
+    const int selectorW = saveW + gap + navW + gap + nameW + gap + navW;
     const int selectorX = (kEditorWidth - selectorW) / 2;
     const int navY     = (kHeaderH - btnH) / 2;
 
     int cx = selectorX;
-    presetPrevButton.setBounds(cx, navY, navW, btnH);
-    cx += navW + gap;
     presetSaveButton.setBounds(cx, navY, saveW, btnH);
     cx += saveW + gap;
+    presetPrevButton.setBounds(cx, navY, navW, btnH);
+    cx += navW + gap;
     presetNameButton.setBounds(cx, navY, nameW, btnH);
     cx += nameW + gap;
     presetNextButton.setBounds(cx, navY, navW, btnH);
@@ -683,7 +729,7 @@ void PatinaEditor::resized()
         strip.lockButton.setBounds(lockX, lockY, lockW, lockH);
     }
 
-    // ---- Type selector buttons (columns 0, 2, 3) ----
+    // ---- Type selector buttons (all 5 columns) ----
     {
         const int typeW = 100;
         const int typeH = 22;
@@ -693,6 +739,12 @@ void PatinaEditor::resized()
         {
             const int colX = 0 * moduleW;
             noiseTypeButton.setBounds(colX + (moduleW - typeW) / 2, typeY, typeW, typeH);
+        }
+
+        // Wobble sync -- column 1
+        {
+            const int colX = 1 * moduleW;
+            wobbleSyncButton.setBounds(colX + (moduleW - typeW) / 2, typeY, typeW, typeH);
         }
 
         // Distort type -- column 2
@@ -705,6 +757,12 @@ void PatinaEditor::resized()
         {
             const int colX = 3 * moduleW;
             resonatorTypeButton.setBounds(colX + (moduleW - typeW) / 2, typeY, typeW, typeH);
+        }
+
+        // Space type -- column 4
+        {
+            const int colX = 4 * moduleW;
+            spaceTypeButton.setBounds(colX + (moduleW - typeW) / 2, typeY, typeW, typeH);
         }
     }
 
@@ -723,12 +781,14 @@ void PatinaEditor::resized()
             noiseTone.label.setBounds(colX, labelY, moduleW, secLabelH);
         }
 
-        // Column 1 (Wobble) -- RATE
+        // Column 1 (Wobble) -- RATE or SHAPE (same position, swapped by visibility)
         {
             const int colX = 1 * moduleW;
             const int knobX = colX + (moduleW - secKnobSize) / 2;
             wobbleRate.knob.setBounds(knobX, secY, secKnobSize, secKnobSize);
             wobbleRate.label.setBounds(colX, labelY, moduleW, secLabelH);
+            wobbleShape.knob.setBounds(knobX, secY, secKnobSize, secKnobSize);
+            wobbleShape.label.setBounds(colX, labelY, moduleW, secLabelH);
         }
 
         // Column 2 (Distort) -- TONE

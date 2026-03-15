@@ -23,7 +23,15 @@ void WobbleModule::reset()
     smoothedAmount = 0.0f;
 }
 
-void WobbleModule::process(juce::AudioBuffer<float>& buffer, float amount, float rate)
+// Beat multipliers for tempo-synced modes (index 1-8).
+// Multiplied by (BPM / 60) to get LFO frequency in Hz.
+// 1/1=0.25, 1/2=0.5, 1/4=1, 1/8=2, 1/8T=3, 1/16=4, 1/16T=6, 1/32=8
+static constexpr float kSyncMultipliers[8] = {
+    0.25f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f
+};
+
+void WobbleModule::process(juce::AudioBuffer<float>& buffer, float amount, float rate,
+                           int rateMode, double bpm, float shape)
 {
     if (amount < 0.001f)
         return;
@@ -32,9 +40,18 @@ void WobbleModule::process(juce::AudioBuffer<float>& buffer, float amount, float
     auto* leftChannel  = buffer.getWritePointer(0);
     auto* rightChannel = buffer.getWritePointer(1);
 
-    // Rate mapping: 0.0 -> 0.5 Hz, 1.0 -> 12 Hz (exponential)
-    // freq = 0.5 * pow(24, rate)
-    float freq = 0.5f * std::pow(24.0f, rate);
+    float freq;
+    if (rateMode > 0 && rateMode <= 8)
+    {
+        // Tempo-synced: calculate frequency from BPM and note division
+        float beatsPerSec = static_cast<float>(bpm) / 60.0f;
+        freq = beatsPerSec * kSyncMultipliers[rateMode - 1];
+    }
+    else
+    {
+        // Free mode: 0.0 -> 0.5 Hz, 1.0 -> 12 Hz (exponential)
+        freq = 0.5f * std::pow(24.0f, rate);
+    }
     float phaseInc = freq / static_cast<float>(sampleRate);
 
     for (int i = 0; i < numSamples; ++i)
@@ -42,13 +59,24 @@ void WobbleModule::process(juce::AudioBuffer<float>& buffer, float amount, float
         // Smooth amount to avoid clicks when user turns knob
         smoothedAmount += smoothingCoeff * (amount - smoothedAmount);
 
-        // LFO: sin oscillation mapped to gain
-        // gain = 1.0 - amount * (0.5 - 0.5 * sin(phase))
-        // At amount=0: gain=1.0 (no effect)
-        // At amount=1: gain swings 0.0 to 1.0
+        // LFO waveform: blend from sine (shape=0) to square (shape=1)
         float sinL = std::sin(phaseL * juce::MathConstants<float>::twoPi);
         float sinR = std::sin(phaseR * juce::MathConstants<float>::twoPi);
 
+        // Shape: raise sine to a power to steepen it toward square
+        // At shape=0: pure sine. At shape=1: hard square.
+        if (shape > 0.001f)
+        {
+            // Steepen: use tanh-based shaping for smooth sine-to-square morph
+            // Drive increases with shape: 1x (sine) to 20x (near-square)
+            float drive = 1.0f + shape * 19.0f;
+            sinL = std::tanh(sinL * drive) / std::tanh(drive);
+            sinR = std::tanh(sinR * drive) / std::tanh(drive);
+        }
+
+        // Gain: 1.0 - amount * (0.5 - 0.5 * lfo)
+        // At amount=0: gain=1.0 (no effect)
+        // At amount=1: gain swings 0.0 to 1.0
         float gainL = 1.0f - smoothedAmount * (0.5f - 0.5f * sinL);
         float gainR = 1.0f - smoothedAmount * (0.5f - 0.5f * sinR);
 

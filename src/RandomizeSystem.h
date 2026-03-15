@@ -55,7 +55,7 @@ private:
         ModuleId owner;       // Which module owns this param
     };
 
-    static constexpr int NUM_PARAMS = 15;
+    static constexpr int NUM_PARAMS = 16;
     static const ParamEntry params[NUM_PARAMS];
 
     std::array<bool, NUM_MODULES> locked{};

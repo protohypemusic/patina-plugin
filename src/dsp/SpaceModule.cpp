@@ -133,11 +133,18 @@ void SpaceModule::prepare(double newSampleRate, int /*samplesPerBlock*/)
     tankDelay2b.setMaxDelay(static_cast<int>(3720.0f * scale) + 1);
     tankDelay2b.setDelay(static_cast<int>(3720.0f * scale));
 
-    // Pre-delay: fixed ~15ms
-    int preDelayMax = static_cast<int>(0.025f * static_cast<float>(sampleRate));
+    // Pre-delay: max ~40ms (type-dependent actual value set in process)
+    int preDelayMax = static_cast<int>(0.040f * static_cast<float>(sampleRate));
     preDelaySamples = static_cast<int>(0.015f * static_cast<float>(sampleRate));
     preDelay.setMaxDelay(preDelayMax + 1);
     preDelay.setDelay(preDelaySamples);
+
+    // Tonal delay: max ~35ms (covers 20-30ms range with headroom)
+    int tonalMax = static_cast<int>(0.035f * static_cast<float>(sampleRate));
+    tonalDelayL.setMaxDelay(tonalMax + 1);
+    tonalDelayR.setMaxDelay(tonalMax + 1);
+    tonalDelayL.setDelay(static_cast<int>(0.025f * static_cast<float>(sampleRate)));
+    tonalDelayR.setDelay(static_cast<int>(0.027f * static_cast<float>(sampleRate)));  // Slight offset for stereo
 
     // Output taps for stereo decorrelation (scaled from Dattorro)
     taps.leftTaps[0] = static_cast<int>(266.0f * scale);
@@ -193,6 +200,13 @@ void SpaceModule::reset()
     tank2bOutput = 0.0f;
     lfoPhase1 = 0.0f;
     lfoPhase2 = 0.0f;
+
+    tonalDelayL.reset();
+    tonalDelayR.reset();
+    tonalFeedbackL = 0.0f;
+    tonalFeedbackR = 0.0f;
+    tonalLpfL_z1 = 0.0f;
+    tonalLpfR_z1 = 0.0f;
 }
 
 // Soft-clip to prevent energy blowup in feedback loops
@@ -205,27 +219,61 @@ static inline float softClip(float x)
     return x * (27.0f + x2) / (27.0f + 9.0f * x2);
 }
 
-void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float decayParam)
+void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float decayParam,
+                          int type)
 {
     if (amount < 0.001f)
         return;
+
+    // Type 3 = TONAL: separate processing path
+    if (type == 3)
+    {
+        processTonal(buffer, amount, decayParam);
+        return;
+    }
 
     auto numSamples = buffer.getNumSamples();
     auto* leftChannel = buffer.getWritePointer(0);
     auto* rightChannel = buffer.getWritePointer(1);
 
+    // Type-dependent parameter scaling
+    float decayScale = 1.0f;
+    float dampingBias = 0.0f;
+    float diffGain1 = 0.60f;
+    float diffGain2 = 0.50f;
+    float modScale = 1.0f;
+
+    switch (type)
+    {
+        case 1: // ROOM: tighter, more damped, less modulation
+            preDelay.setDelay(static_cast<int>(0.005f * static_cast<float>(sampleRate)));
+            decayScale = 0.80f;
+            dampingBias = 0.15f;
+            diffGain1 = 0.70f;
+            diffGain2 = 0.60f;
+            modScale = 0.5f;
+            break;
+        case 2: // HALL: spacious, less damped, more modulation
+            preDelay.setDelay(static_cast<int>(0.030f * static_cast<float>(sampleRate)));
+            decayScale = 1.10f;
+            dampingBias = -0.12f;
+            diffGain1 = 0.55f;
+            diffGain2 = 0.45f;
+            modScale = 1.5f;
+            break;
+        default: // PLATE: original tuning
+            preDelay.setDelay(static_cast<int>(0.015f * static_cast<float>(sampleRate)));
+            break;
+    }
+
     // Decay parameter controls reverb tail independently from wet/dry
-    // decayParam 0.0 -> tight room (0.2), 1.0 -> long ambient wash (0.90)
-    // Capped at 0.90 to prevent runaway feedback in the cross-coupled tank
-    float targetDecay = 0.2f + 0.70f * decayParam;
-    // Damping tied to decay: always somewhat dark to avoid metallic ringing
-    float targetDamping = 0.45f + 0.35f * decayParam;
+    float targetDecay = (0.2f + 0.70f * decayParam) * decayScale;
+    targetDecay = std::min(targetDecay, 0.92f); // Safety cap
+    float targetDamping = std::max(0.0f, std::min(1.0f, 0.45f + 0.35f * decayParam + dampingBias));
     smoothedDecay.setTargetValue(targetDecay);
     smoothedDamping.setTargetValue(targetDamping);
 
-    // Wet/dry balance — wet + dry always = 1.0 to prevent clipping.
-    // Previous formula (wet=amount, dry=1-amount*0.5) could sum to 1.40 at amount=0.80.
-    // New formula: wet caps at 0.70 (full reverb wash), dry fills the rest.
+    // Wet/dry balance
     float wet = amount * 0.7f;
     float dry = 1.0f - wet;
 
@@ -242,68 +290,53 @@ void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float 
         float preDelayed = preDelay.read();
 
         // Input diffusion: 4 cascaded allpass filters
-        // Lower gains reduce resonant coloration
         float diffused = preDelayed;
-        diffused = inputDiffusers[0].process(diffused, 0.60f);
-        diffused = inputDiffusers[1].process(diffused, 0.60f);
-        diffused = inputDiffusers[2].process(diffused, 0.50f);
-        diffused = inputDiffusers[3].process(diffused, 0.50f);
+        diffused = inputDiffusers[0].process(diffused, diffGain1);
+        diffused = inputDiffusers[1].process(diffused, diffGain1);
+        diffused = inputDiffusers[2].process(diffused, diffGain2);
+        diffused = inputDiffusers[3].process(diffused, diffGain2);
 
         // ---- Advance tank modulation LFOs ----
-        // Slow sinusoidal modulation of delay read positions
-        // smears the comb filter peaks that cause tonal coloration
         lfoPhase1 += lfoRate1;
         if (lfoPhase1 >= 1.0f) lfoPhase1 -= 1.0f;
         lfoPhase2 += lfoRate2;
         if (lfoPhase2 >= 1.0f) lfoPhase2 -= 1.0f;
 
-        float mod1 = std::sin(lfoPhase1 * 6.2831853f) * modExcursion;
-        float mod2 = std::sin(lfoPhase2 * 6.2831853f) * modExcursion;
+        float mod1 = std::sin(lfoPhase1 * 6.2831853f) * modExcursion * modScale;
+        float mod2 = std::sin(lfoPhase2 * 6.2831853f) * modExcursion * modScale;
 
         // ---- Tank Loop 1 ----
         float tankIn1 = diffused + softClip(tank2bOutput) * currentDecay;
-
-        // Allpass in loop 1 (lower gain = less resonant coloration)
         float ap1Out = tankAllpass1.process(tankIn1, -0.5f);
 
-        // Delay 1a (modulated read for smeared resonances)
         tankDelay1a.write(ap1Out);
         float d1aDelay = static_cast<float>(tankDelay1a.getDelayLength());
         float d1aOut = tankDelay1a.readFractional(std::max(1.0f, d1aDelay + mod1));
 
-        // Damping lowpass (one-pole)
         damping1_z1 = d1aOut * (1.0f - currentDamping) + damping1_z1 * currentDamping;
         float damped1 = softClip(damping1_z1);
 
-        // Delay 1b
         tankDelay1b.write(damped1 * currentDecay);
         tank1bOutput = tankDelay1b.read();
 
         // ---- Tank Loop 2 ----
         float tankIn2 = diffused + softClip(tank1bOutput) * currentDecay;
-
-        // Allpass in loop 2 (lower gain = less resonant coloration)
         float ap2Out = tankAllpass2.process(tankIn2, -0.5f);
 
-        // Delay 2a (modulated read for smeared resonances)
         tankDelay2a.write(ap2Out);
         float d2aDelay = static_cast<float>(tankDelay2a.getDelayLength());
         float d2aOut = tankDelay2a.readFractional(std::max(1.0f, d2aDelay + mod2));
 
-        // Damping lowpass (one-pole)
         damping2_z1 = d2aOut * (1.0f - currentDamping) + damping2_z1 * currentDamping;
         float damped2 = softClip(damping2_z1);
 
-        // Delay 2b
         tankDelay2b.write(damped2 * currentDecay);
         tank2bOutput = tankDelay2b.read();
 
         // ---- Multi-tap stereo output ----
-        // Simplified tap reading from tank delays
         float reverbL = 0.0f;
         float reverbR = 0.0f;
 
-        // Tap from various points in the tank for decorrelated stereo
         reverbL += tankDelay1a.readAt(std::min(taps.leftTaps[0], static_cast<int>(672.0f * static_cast<float>(sampleRate) / 29761.0f)));
         reverbL += tankDelay1b.readAt(std::min(taps.leftTaps[1], static_cast<int>(4453.0f * static_cast<float>(sampleRate) / 29761.0f)));
         reverbL -= tankAllpass2.readAt(std::min(taps.leftTaps[2], static_cast<int>(672.0f * static_cast<float>(sampleRate) / 29761.0f)));
@@ -314,11 +347,59 @@ void SpaceModule::process(juce::AudioBuffer<float>& buffer, float amount, float 
         reverbR -= tankAllpass1.readAt(std::min(taps.rightTaps[2], static_cast<int>(908.0f * static_cast<float>(sampleRate) / 29761.0f)));
         reverbR += tankDelay1a.readAt(std::min(taps.rightTaps[3], static_cast<int>(672.0f * static_cast<float>(sampleRate) / 29761.0f)));
 
-        reverbL *= 0.25f; // Normalize tap sum
+        reverbL *= 0.25f;
         reverbR *= 0.25f;
 
-        // Mix dry + wet, with final safety clamp
         leftChannel[i]  = juce::jlimit(-2.0f, 2.0f, leftChannel[i] * dry + reverbL * wet);
         rightChannel[i] = juce::jlimit(-2.0f, 2.0f, rightChannel[i] * dry + reverbR * wet);
+    }
+}
+
+// ============================================================
+// Tonal Delay (type 3) -- short comb-filter delay (20-30ms)
+// ============================================================
+void SpaceModule::processTonal(juce::AudioBuffer<float>& buffer, float amount, float decayParam)
+{
+    auto numSamples = buffer.getNumSamples();
+    auto* leftChannel = buffer.getWritePointer(0);
+    auto* rightChannel = buffer.getWritePointer(1);
+
+    // Delay time: 20ms (decay=0) to 30ms (decay=1)
+    float delayMs = 20.0f + 10.0f * decayParam;
+    float delaySamplesF = delayMs * 0.001f * static_cast<float>(sampleRate);
+    int delaySamplesL = static_cast<int>(delaySamplesF);
+    int delaySamplesR = static_cast<int>(delaySamplesF * 1.08f); // ~8% offset for stereo width
+
+    tonalDelayL.setDelay(delaySamplesL);
+    tonalDelayR.setDelay(delaySamplesR);
+
+    // Feedback: moderate to high for tonal resonance
+    // Higher decay = more feedback = more pronounced comb-filter tone
+    float feedback = 0.3f + 0.45f * decayParam; // 0.3 to 0.75
+
+    // Lowpass coefficient for warm feedback (cuts harsh highs)
+    float lpfCoeff = 0.35f;
+
+    // Wet/dry: amount controls blend
+    float wet = amount * 0.65f;
+    float dry = 1.0f - wet * 0.5f; // Keep dry signal strong
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        // Read delayed signals
+        float delayedL = tonalDelayL.read();
+        float delayedR = tonalDelayR.read();
+
+        // Lowpass filter on feedback for warmth
+        tonalLpfL_z1 = delayedL * (1.0f - lpfCoeff) + tonalLpfL_z1 * lpfCoeff;
+        tonalLpfR_z1 = delayedR * (1.0f - lpfCoeff) + tonalLpfR_z1 * lpfCoeff;
+
+        // Write input + filtered feedback into delay
+        tonalDelayL.write(leftChannel[i]  + tonalLpfL_z1 * feedback);
+        tonalDelayR.write(rightChannel[i] + tonalLpfR_z1 * feedback);
+
+        // Mix
+        leftChannel[i]  = juce::jlimit(-2.0f, 2.0f, leftChannel[i] * dry + delayedL * wet);
+        rightChannel[i] = juce::jlimit(-2.0f, 2.0f, rightChannel[i] * dry + delayedR * wet);
     }
 }

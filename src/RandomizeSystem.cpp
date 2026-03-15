@@ -32,6 +32,7 @@ const RandomizeSystem::ParamEntry RandomizeSystem::params[NUM_PARAMS] = {
     // Space
     { "space_amount", 0.00f, 0.70f, false, ModuleId::Space },
     { "space_decay",  0.10f, 0.80f, false, ModuleId::Space },
+    { "space_type",   0.00f, 3.00f, true,  ModuleId::Space },  // Plate/Room/Hall/Tonal
 
     // Mix
     { "mix",          0.50f, 1.00f, false, ModuleId::Mix },

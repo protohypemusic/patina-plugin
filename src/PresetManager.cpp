@@ -116,11 +116,11 @@ juce::File PresetManager::getUserPresetsDir()
         juce::File::userApplicationDataDirectory);
 
 #if JUCE_MAC
-    auto dir = appData.getChildFile("Futureproof Music School")
+    auto dir = appData.getChildFile("Max Pote")
                       .getChildFile("Patina")
                       .getChildFile("Presets");
 #else
-    auto dir = appData.getChildFile("Futureproof Music School")
+    auto dir = appData.getChildFile("Max Pote")
                       .getChildFile("Patina")
                       .getChildFile("Presets");
 #endif

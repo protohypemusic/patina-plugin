@@ -24,7 +24,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout PatinaProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ "noise_tone", 1 }, "Noise Tone", 0.0f, 1.0f, 0.5f));
     params.push_back(std::make_unique<juce::AudioParameterInt>(
-        juce::ParameterID{ "noise_type", 1 }, "Noise Type", 0, 2, 0));  // White/Pink/Brown
+        juce::ParameterID{ "noise_type", 1 }, "Noise Type", 0, 2, 0));  // White/Pink/Crackle
 
     // ---- Wobble ----
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -32,6 +32,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout PatinaProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ "wobble_rate", 1 }, "Wobble Rate",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.3f));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{ "wobble_rate_mode", 1 }, "Wobble Rate Mode",
+        0, 8, 3));
+    params.push_back(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{ "wobble_shape", 1 }, "Wobble Shape",
+        juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f));  // 0=sine, 1=square  // 0=Free, 1=1/1, 2=1/2, 3=1/4, 4=1/8, 5=1/8T, 6=1/16, 7=1/16T, 8=1/32
 
     // ---- Distort ----
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -57,6 +63,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout PatinaProcessor::createParam
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{ "space_decay", 1 }, "Space Decay",
         juce::NormalisableRange<float>(0.0f, 1.0f), 0.3f));
+    params.push_back(std::make_unique<juce::AudioParameterInt>(
+        juce::ParameterID{ "space_type", 1 }, "Space Type", 0, 3, 0));  // Plate/Room/Hall/Tonal
 
     // ---- Master ----
     params.push_back(std::make_unique<juce::AudioParameterFloat>(
@@ -132,6 +140,19 @@ void PatinaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     float wobbleAmount    = apvts.getRawParameterValue("wobble_amount")->load();
     float wobbleRate      = apvts.getRawParameterValue("wobble_rate")->load();
+    int   wobbleRateMode  = static_cast<int>(apvts.getRawParameterValue("wobble_rate_mode")->load());
+    float wobbleShape     = apvts.getRawParameterValue("wobble_shape")->load();
+
+    // Get BPM from DAW playhead (fallback to 120 if not available)
+    double bpm = 120.0;
+    if (auto* playHead = getPlayHead())
+    {
+        if (auto posInfo = playHead->getPosition())
+        {
+            if (auto b = posInfo->getBpm())
+                bpm = *b;
+        }
+    }
 
     float distortAmount   = apvts.getRawParameterValue("distort_amount")->load();
     float distortTone     = apvts.getRawParameterValue("distort_tone")->load();
@@ -144,6 +165,7 @@ void PatinaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     float spaceAmount     = apvts.getRawParameterValue("space_amount")->load();
     float spaceDecay      = apvts.getRawParameterValue("space_decay")->load();
+    int   spaceType       = static_cast<int>(apvts.getRawParameterValue("space_type")->load());
 
     float mix             = apvts.getRawParameterValue("mix")->load();
 
@@ -159,10 +181,10 @@ void PatinaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // 1. NOISE -- adds texture to the signal
     noiseModule.process(buffer, noiseAmount, noiseTone, noiseType);
 
-    // 2. WOBBLE -- volume tremolo
+    // 2. WOBBLE -- volume tremolo (free rate or tempo-synced)
     if (wobbleAmount > 0.001f)
     {
-        wobbleModule.process(buffer, wobbleAmount, wobbleRate);
+        wobbleModule.process(buffer, wobbleAmount, wobbleRate, wobbleRateMode, bpm, wobbleShape);
     }
 
     // 3. DISTORT -- waveshaping with post-EQ
@@ -171,10 +193,10 @@ void PatinaProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // 4. RESONATOR -- comb/modal/formant coloring
     resonatorModule.process(buffer, resonatorAmount, resonatorFreq, resonatorReso, resonatorType);
 
-    // 5. SPACE -- plate reverb
+    // 5. SPACE -- reverb / delay (plate, room, hall, tape)
     if (spaceAmount > 0.001f)
     {
-        spaceModule.process(buffer, spaceAmount, spaceDecay);
+        spaceModule.process(buffer, spaceAmount, spaceDecay, spaceType);
     }
 
     // ---- Mix dry/wet ----

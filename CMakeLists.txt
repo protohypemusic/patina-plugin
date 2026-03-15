@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_subdirectory(JUCE)
 
 juce_add_plugin(Patina
-    COMPANY_NAME "Futureproof Music School"
+    COMPANY_NAME "Max Pote"
     PLUGIN_MANUFACTURER_CODE Fpms
     PLUGIN_CODE Ptna
     FORMATS VST3 AU

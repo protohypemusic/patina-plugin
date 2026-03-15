@@ -12,7 +12,7 @@
 
 #define MyAppName "Patina"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Futureproof Music School"
+#define MyAppPublisher "Max Pote"
 #define MyAppURL "https://futureproofmusicschool.com"
 
 [Setup]
