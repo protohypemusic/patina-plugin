@@ -85,6 +85,7 @@ PatinaEditor::PatinaEditor(PatinaProcessor& p)
 
         syncLockButtons();
         syncTypeButtons();
+        spectralBloom.resetVisualState();
     };
     addAndMakeVisible(initButton);
 
@@ -95,6 +96,7 @@ PatinaEditor::PatinaEditor(PatinaProcessor& p)
         processorRef.getRandomizeSystem().randomize(processorRef.getAPVTS());
         syncLockButtons();
         syncTypeButtons();
+        spectralBloom.resetVisualState();
     };
     addAndMakeVisible(randomizeButton);
 
@@ -107,12 +109,14 @@ PatinaEditor::PatinaEditor(PatinaProcessor& p)
         processorRef.getPresetManager().prevPresetGlobal(processorRef.getAPVTS());
         updatePresetLabel();
         syncTypeButtons();
+        spectralBloom.resetVisualState();
     };
     presetNextButton.onClick = [this]
     {
         processorRef.getPresetManager().nextPresetGlobal(processorRef.getAPVTS());
         updatePresetLabel();
         syncTypeButtons();
+        spectralBloom.resetVisualState();
     };
 
     // Preset name button -- clickable, opens dropdown
@@ -380,6 +384,7 @@ void PatinaEditor::showPresetMenu()
                 pm2.loadPreset(result - 100, apvts2);
                 updatePresetLabel();
                 syncTypeButtons();
+                spectralBloom.resetVisualState();
             }
             else if (result >= 500 && result < 700)
             {
@@ -390,6 +395,7 @@ void PatinaEditor::showPresetMenu()
                     pm2.loadUserPreset(userNames[idx], apvts2);
                     updatePresetLabel();
                     syncTypeButtons();
+                    spectralBloom.resetVisualState();
                 }
             }
             else if (result >= 700 && result < 900)

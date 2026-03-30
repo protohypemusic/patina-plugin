@@ -19,6 +19,22 @@ SpectralBloomComponent::~SpectralBloomComponent()
 }
 
 // ================================================================
+// resetVisualState — zero all display arrays so visualizer goes idle
+// ================================================================
+
+void SpectralBloomComponent::resetVisualState()
+{
+    displayBins.fill(0.0f);
+    trailBins.fill(0.0f);
+    peakBins.fill(0.0f);
+    distortJitter.fill(0.0f);
+
+    // Kill all active particles
+    for (auto& p : particles)
+        p.life = 0.0f;
+}
+
+// ================================================================
 // FFT bin → display bin (logarithmic mapping)
 //
 // Maps kNumBins display bins onto the FFT output using a log scale

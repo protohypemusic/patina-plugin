@@ -27,6 +27,9 @@ public:
     explicit SpectralBloomComponent(PatinaProcessor& processor);
     ~SpectralBloomComponent() override;
 
+    /** Clear all visual state so the visualizer is idle until new audio arrives. */
+    void resetVisualState();
+
     void paint(juce::Graphics& g) override;
     void resized() override;
 
